@@ -15,6 +15,50 @@ export const GAME_PHASE = {
   WIN: 'win',
 }
 
+const SAVE_KEY = 'datamines-save'
+
+function saveGame(state) {
+  const data = {
+    currentNodeId: state.currentNodeId,
+    firewalls: state.firewalls,
+    maxFirewalls: state.maxFirewalls,
+    cache: state.cache,
+    entropy: state.entropy,
+    totalCacheEarned: state.totalCacheEarned,
+    subroutines: state.subroutines,
+    exploits: state.exploits,
+    kernelLevels: state.kernelLevels,
+    phase: state.phase,
+    engine: state.engine ? state.engine.serialize() : null,
+    elapsed: state.elapsed,
+    showPacketSniffer: state.showPacketSniffer,
+    rowMineCounts: state.rowMineCounts,
+    colMineCounts: state.colMineCounts,
+  }
+  localStorage.setItem(SAVE_KEY, JSON.stringify(data))
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+export function clearSave() {
+  localStorage.removeItem(SAVE_KEY)
+}
+
+export function hasSave() {
+  return localStorage.getItem(SAVE_KEY) !== null
+}
+
+export function getSaveInfo() {
+  const save = loadGame()
+  if (!save) return null
+  return { currentNodeId: save.currentNodeId, cache: save.cache }
+}
+
 const store = create((set, get) => ({
   // Game phase
   phase: GAME_PHASE.BOOT,
@@ -43,6 +87,7 @@ const store = create((set, get) => ({
   currentTheme: localStorage.getItem('datamines-theme') || 'phosphor',
 
   // UI state
+  commandOverlayOpen: false,
   revealAnimations: [],
   mineExplosions: [],
   nodeCompleteData: null,
@@ -56,6 +101,8 @@ const store = create((set, get) => ({
   timerInterval: null,
 
   // Actions
+  openCommandOverlay: () => set({ commandOverlayOpen: true }),
+  closeCommandOverlay: () => set({ commandOverlayOpen: false }),
   setPhase: (phase) => set({ phase }),
 
   toggleSound: () => set(state => ({ soundEnabled: !state.soundEnabled })),
@@ -73,6 +120,7 @@ const store = create((set, get) => ({
   },
 
   startNewRun: () => {
+    clearSave()
     set({
       phase: GAME_PHASE.GRID,
       currentNodeId: 1,
@@ -92,6 +140,53 @@ const store = create((set, get) => ({
       elapsed: 0,
     })
     get().initNode(1)
+  },
+
+  resumeRun: () => {
+    const save = loadGame()
+    if (!save) return
+    set({
+      currentNodeId: save.currentNodeId,
+      firewalls: save.firewalls,
+      maxFirewalls: save.maxFirewalls,
+      cache: save.cache,
+      entropy: save.entropy,
+      totalCacheEarned: save.totalCacheEarned,
+      subroutines: save.subroutines,
+      exploits: save.exploits,
+      kernelLevels: save.kernelLevels,
+      deepScanActive: false,
+      deepScanResults: null,
+      revealAnimations: [],
+      mineExplosions: [],
+      nodeCompleteData: null,
+      elapsed: save.elapsed || 0,
+    })
+    if (save.phase === GAME_PHASE.TERMINAL || save.phase === GAME_PHASE.NODE_COMPLETE) {
+      set({ phase: GAME_PHASE.TERMINAL, entropy: 0 })
+    } else if (save.phase === GAME_PHASE.GRID && save.engine) {
+      // Restore exact grid state from save
+      const engine = MinesweeperEngine.deserialize(save.engine)
+      set({
+        engine,
+        phase: GAME_PHASE.GRID,
+        showPacketSniffer: save.showPacketSniffer || false,
+        rowMineCounts: save.rowMineCounts || [],
+        colMineCounts: save.colMineCounts || [],
+      })
+      // Resume the timer if the grid is in progress (mines placed)
+      if (!engine.firstClick && !engine.gameOver) {
+        get().startTimer()
+      }
+    } else {
+      get().initNode(save.currentNodeId)
+    }
+  },
+
+  abandonRun: () => {
+    clearSave()
+    get().stopTimer()
+    set({ phase: GAME_PHASE.TITLE })
   },
 
   initNode: (nodeId) => {
@@ -172,10 +267,12 @@ const store = create((set, get) => ({
           phase: GAME_PHASE.GAME_OVER,
           mineExplosions: [...get().mineExplosions, ...allMines.map(m => ({ ...m, time: Date.now() }))],
         })
+        clearSave()
       } else {
         // Firewall absorbed it — re-hide the cell and continue
         engine.cellStates[row][col] = CELL_STATE.HIDDEN
         engine.revealedCount = Math.max(0, engine.revealedCount)
+        saveGame(get())
       }
       // Force re-render
       set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
@@ -213,6 +310,8 @@ const store = create((set, get) => ({
         get().stopTimer()
         if (soundEnabled) sfx.playWin()
         get().completeNode()
+      } else {
+        saveGame(get())
       }
 
       // Force re-render
@@ -229,6 +328,7 @@ const store = create((set, get) => ({
     if (result && soundEnabled) sfx.playFlag()
     if (result) {
       set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
+      saveGame(get())
     }
   },
 
@@ -252,6 +352,9 @@ const store = create((set, get) => ({
           phase: GAME_PHASE.GAME_OVER,
           mineExplosions: allMines.map(m => ({ ...m, time: Date.now() })),
         })
+        clearSave()
+      } else {
+        saveGame(get())
       }
       set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
     } else if (result.cells.length > 0) {
@@ -265,6 +368,8 @@ const store = create((set, get) => ({
         get().stopTimer()
         if (soundEnabled) sfx.playWin()
         get().completeNode()
+      } else {
+        saveGame(get())
       }
       set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
     }
@@ -319,6 +424,7 @@ const store = create((set, get) => ({
         hasNextNode: !!nextNode,
       },
     })
+    saveGame(get())
   },
 
   proceedToTerminal: () => {
@@ -326,8 +432,10 @@ const store = create((set, get) => ({
     const nextNode = getNextNode(state.currentNodeId)
     if (nextNode) {
       set({ phase: GAME_PHASE.TERMINAL, entropy: 0 })
+      saveGame(get())
     } else {
       set({ phase: GAME_PHASE.WIN })
+      clearSave()
     }
   },
 
@@ -368,6 +476,7 @@ const store = create((set, get) => ({
 
       set(updates)
     }
+    saveGame(get())
     return true
   },
 

@@ -7,6 +7,7 @@ import { THEMES } from '../themes'
 const COMMANDS = [
   { id: 'status', label: '/status', description: 'View current build' },
   { id: 'settings', label: '/settings', description: 'Theme & sound' },
+  { id: 'quit', label: '/quit', description: 'Abandon run' },
 ]
 
 function StatusPanel() {
@@ -22,41 +23,41 @@ function StatusPanel() {
   const node = getNode(currentNodeId)
 
   return (
-    <div className="flex flex-col gap-3 p-3 text-sm">
+    <div className="flex flex-col gap-4 p-4 text-base">
       {/* Node info */}
       <div>
-        <div className="text-[var(--crt-green-dim)] text-xs mb-1">NODE {String(currentNodeId).padStart(2, '0')} / {NODES.length}</div>
-        <div className="text-[var(--crt-amber)] glow-amber font-bold">{node.name}</div>
-        <div className="text-[var(--crt-green-dim)] text-xs">{node.subtitle}</div>
+        <div className="text-[var(--crt-green-dim)] text-sm mb-1">NODE {String(currentNodeId).padStart(2, '0')} / {NODES.length}</div>
+        <div className="text-[var(--crt-amber)] glow-amber font-bold text-lg">{node.name}</div>
+        <div className="text-[var(--crt-green-dim)] text-sm">{node.subtitle}</div>
       </div>
 
       {/* Stats */}
-      <div className="border-t border-[var(--crt-green-dark)] pt-2 flex gap-6">
+      <div className="border-t border-[var(--crt-green-dark)] pt-3 flex gap-8">
         <div>
-          <span className="text-[var(--crt-green-dim)] text-xs">FIREWALL </span>
+          <span className="text-[var(--crt-green-dim)] text-sm">FIREWALL </span>
           <span className="text-[var(--crt-green)] font-bold">{firewalls}/{maxFirewalls}</span>
         </div>
         <div>
-          <span className="text-[var(--crt-green-dim)] text-xs">CACHE </span>
+          <span className="text-[var(--crt-green-dim)] text-sm">CACHE </span>
           <span className="text-[var(--crt-amber)] font-bold">${cache}</span>
         </div>
         <div>
-          <span className="text-[var(--crt-green-dim)] text-xs">ENTROPY </span>
+          <span className="text-[var(--crt-green-dim)] text-sm">ENTROPY </span>
           <span className="text-[var(--crt-cyan)] font-bold">{entropy}</span>
         </div>
       </div>
 
       {/* Subroutines */}
       {Object.keys(subroutines).length > 0 && (
-        <div className="border-t border-[var(--crt-green-dark)] pt-2">
-          <div className="text-[var(--crt-green-dim)] text-xs mb-1">SUBROUTINES</div>
+        <div className="border-t border-[var(--crt-green-dark)] pt-3">
+          <div className="text-[var(--crt-green-dim)] text-sm mb-2">SUBROUTINES</div>
           {Object.entries(subroutines).map(([id, level]) => {
             const u = UPGRADES[id]
             if (!u) return null
             return (
-              <div key={id} className="flex items-center justify-between py-0.5">
+              <div key={id} className="flex items-center justify-between py-1">
                 <span className="text-[var(--crt-green)]">{u.name}</span>
-                <span className="text-[var(--crt-green-dim)] text-xs">LVL {level}/{u.maxLevel}</span>
+                <span className="text-[var(--crt-green-dim)] text-sm">LVL {level}/{u.maxLevel}</span>
               </div>
             )
           })}
@@ -65,15 +66,15 @@ function StatusPanel() {
 
       {/* Exploits */}
       {Object.keys(exploits).length > 0 && (
-        <div className="border-t border-[var(--crt-green-dark)] pt-2">
-          <div className="text-[var(--crt-green-dim)] text-xs mb-1">EXPLOITS</div>
+        <div className="border-t border-[var(--crt-green-dark)] pt-3">
+          <div className="text-[var(--crt-green-dim)] text-sm mb-2">EXPLOITS</div>
           {Object.entries(exploits).map(([id, charges]) => {
             const u = UPGRADES[id]
             if (!u) return null
             return (
-              <div key={id} className="flex items-center justify-between py-0.5">
+              <div key={id} className="flex items-center justify-between py-1">
                 <span className="text-[var(--crt-green)]">{u.name}</span>
-                <span className="text-[var(--crt-green-dim)] text-xs">{charges} charge{charges !== 1 ? 's' : ''}</span>
+                <span className="text-[var(--crt-green-dim)] text-sm">{charges} charge{charges !== 1 ? 's' : ''}</span>
               </div>
             )
           })}
@@ -82,15 +83,15 @@ function StatusPanel() {
 
       {/* Kernel */}
       {Object.keys(kernelLevels).length > 0 && (
-        <div className="border-t border-[var(--crt-green-dark)] pt-2">
-          <div className="text-[var(--crt-green-dim)] text-xs mb-1">KERNEL</div>
+        <div className="border-t border-[var(--crt-green-dark)] pt-3">
+          <div className="text-[var(--crt-green-dim)] text-sm mb-2">KERNEL</div>
           {Object.entries(kernelLevels).map(([id, level]) => {
             const u = UPGRADES[id]
             if (!u) return null
             return (
-              <div key={id} className="flex items-center justify-between py-0.5">
+              <div key={id} className="flex items-center justify-between py-1">
                 <span className="text-[var(--crt-green)]">{u.name}</span>
-                <span className="text-[var(--crt-green-dim)] text-xs">LVL {level}/{u.maxLevel}</span>
+                <span className="text-[var(--crt-green-dim)] text-sm">LVL {level}/{u.maxLevel}</span>
               </div>
             )
           })}
@@ -99,7 +100,7 @@ function StatusPanel() {
 
       {/* Empty state */}
       {Object.keys(subroutines).length === 0 && Object.keys(exploits).length === 0 && Object.keys(kernelLevels).length === 0 && (
-        <div className="border-t border-[var(--crt-green-dark)] pt-2 text-[var(--crt-green-dim)] text-xs">
+        <div className="border-t border-[var(--crt-green-dark)] pt-3 text-[var(--crt-green-dim)] text-sm">
           No upgrades installed. Visit the terminal between nodes.
         </div>
       )}
@@ -144,18 +145,18 @@ function SettingsPanel() {
   }, [selectedIdx, themeEntries, setTheme, toggleSound])
 
   return (
-    <div className="flex flex-col gap-3 p-3 text-sm">
-      <div className="text-[var(--crt-green-dim)] text-xs">THEME <span className="text-[var(--crt-green-dark)]">(arrow keys + enter)</span></div>
+    <div className="flex flex-col gap-4 p-4 text-base">
+      <div className="text-[var(--crt-green-dim)] text-sm">THEME <span className="text-[var(--crt-green-dark)]">(arrow keys + enter)</span></div>
       {themeEntries.map(([id, theme], i) => (
         <button
           key={id}
           onClick={() => setTheme(id)}
-          className={`flex items-center gap-2 px-2 py-1 text-left transition-colors ${
+          className={`flex items-center gap-3 px-3 py-2 text-left transition-colors ${
             i === selectedIdx ? 'bg-[var(--crt-green)] text-[var(--crt-bg)]' : ''
           } ${currentTheme === id && i !== selectedIdx ? 'text-[var(--crt-green)]' : i !== selectedIdx ? 'text-[var(--crt-green-dim)]' : ''}`}
         >
           <span
-            className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+            className="inline-block w-3 h-3 rounded-full flex-shrink-0"
             style={{ backgroundColor: theme.primary }}
           />
           {theme.name}
@@ -163,11 +164,11 @@ function SettingsPanel() {
         </button>
       ))}
 
-      <div className="border-t border-[var(--crt-green-dark)] pt-2">
-        <div className="text-[var(--crt-green-dim)] text-xs mb-1">SOUND <span className="text-[var(--crt-green-dark)]">(press S)</span></div>
+      <div className="border-t border-[var(--crt-green-dark)] pt-3">
+        <div className="text-[var(--crt-green-dim)] text-sm mb-2">SOUND <span className="text-[var(--crt-green-dark)]">(press S)</span></div>
         <button
           onClick={toggleSound}
-          className="terminal-btn text-xs py-1 px-3"
+          className="terminal-btn text-sm py-1.5 px-4"
         >
           {soundEnabled ? 'SND: ON' : 'SND: OFF'}
         </button>
@@ -187,7 +188,7 @@ export default function CommandOverlay() {
   const [activeCommand, setActiveCommand] = useState(null)
   const inputRef = useRef(null)
 
-  const allowedPhases = [GAME_PHASE.GRID, GAME_PHASE.TERMINAL]
+  const allowedPhases = [GAME_PHASE.GRID, GAME_PHASE.TERMINAL, GAME_PHASE.NODE_COMPLETE]
 
   // Filter commands based on input
   const filter = input.startsWith('/') ? input.slice(1).toLowerCase() : input.toLowerCase()
@@ -227,9 +228,16 @@ export default function CommandOverlay() {
     }
   }, [filtered.length, selectedIdx])
 
+  const abandonRun = useGameStore(s => s.abandonRun)
+
   const executeCommand = useCallback((cmd) => {
+    if (cmd.id === 'quit') {
+      closeCommandOverlay()
+      abandonRun()
+      return
+    }
     setActiveCommand(cmd.id)
-  }, [])
+  }, [closeCommandOverlay, abandonRun])
 
   const handleKeyDown = (e) => {
     if (activeCommand) {
@@ -266,51 +274,32 @@ export default function CommandOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
+      className="fixed inset-0 z-50 flex items-end justify-center"
       onClick={closeCommandOverlay}
     >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70" />
 
-      {/* Palette */}
+      {/* Palette — anchored to bottom */}
       <div
-        className="relative w-full max-w-md border border-[var(--crt-green-dim)] bg-[var(--crt-bg)] shadow-[0_0_30px_var(--crt-green-glow)]"
+        className="relative w-full max-w-lg border border-[var(--crt-green-dim)] bg-[var(--crt-bg)] shadow-[0_0_30px_var(--crt-green-glow)] flex flex-col"
         onClick={e => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        {/* Input row */}
-        <div className="flex items-center border-b border-[var(--crt-green-dark)] px-3 py-2">
-          <span className="text-[var(--crt-green-dim)] mr-1">&gt;</span>
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={e => {
-              const val = e.target.value
-              setInput(val.startsWith('/') ? val : '/' + val)
-              setSelectedIdx(0)
-              setActiveCommand(null)
-            }}
-            className="flex-1 bg-transparent text-[var(--crt-green)] caret-[var(--crt-green)] outline-none font-mono text-sm"
-            spellCheck={false}
-            autoComplete="off"
-          />
-        </div>
-
-        {/* Command list or active panel */}
+        {/* Command list or active panel — above input */}
         {activeCommand === 'status' ? (
           <div>
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--crt-green-dark)] bg-[var(--crt-bg-light)]">
-              <span className="text-[var(--crt-green)] text-xs font-bold">/STATUS</span>
-              <span className="text-[var(--crt-green-dark)] text-xs">ESC to go back</span>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--crt-green-dark)] bg-[var(--crt-bg-light)]">
+              <span className="text-[var(--crt-green)] text-sm font-bold">/STATUS</span>
+              <span className="text-[var(--crt-green-dark)] text-sm">ESC to go back</span>
             </div>
             <StatusPanel />
           </div>
         ) : activeCommand === 'settings' ? (
           <div>
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--crt-green-dark)] bg-[var(--crt-bg-light)]">
-              <span className="text-[var(--crt-green)] text-xs font-bold">/SETTINGS</span>
-              <span className="text-[var(--crt-green-dark)] text-xs">ESC to go back</span>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--crt-green-dark)] bg-[var(--crt-bg-light)]">
+              <span className="text-[var(--crt-green)] text-sm font-bold">/SETTINGS</span>
+              <span className="text-[var(--crt-green-dark)] text-sm">ESC to go back</span>
             </div>
             <SettingsPanel />
           </div>
@@ -320,7 +309,7 @@ export default function CommandOverlay() {
               <button
                 key={cmd.id}
                 onClick={() => executeCommand(cmd)}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors ${
+                className={`w-full flex items-center gap-4 px-4 py-3 text-base text-left transition-colors ${
                   i === selectedIdx
                     ? 'bg-[var(--crt-green)] text-[var(--crt-bg)]'
                     : 'text-[var(--crt-green-dim)] hover:bg-[var(--crt-bg-light)]'
@@ -333,12 +322,31 @@ export default function CommandOverlay() {
               </button>
             ))}
             {filtered.length === 0 && (
-              <div className="px-3 py-3 text-[var(--crt-green-dim)] text-xs">
+              <div className="px-4 py-4 text-[var(--crt-green-dim)] text-sm">
                 No matching commands
               </div>
             )}
           </div>
         )}
+
+        {/* Input row — at the bottom */}
+        <div className="flex items-center border-t border-[var(--crt-green-dark)] px-4 py-3">
+          <span className="text-[var(--crt-green-dim)] mr-2 text-lg">&gt;</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={e => {
+              const val = e.target.value
+              setInput(val.startsWith('/') ? val : '/' + val)
+              setSelectedIdx(0)
+              setActiveCommand(null)
+            }}
+            className="flex-1 bg-transparent text-[var(--crt-green)] caret-[var(--crt-green)] outline-none font-mono text-base"
+            spellCheck={false}
+            autoComplete="off"
+          />
+        </div>
       </div>
     </div>
   )

@@ -260,4 +260,40 @@ export class MinesweeperEngine {
   getCellValue(row, col) {
     return this.board[row][col]
   }
+
+  serialize() {
+    return {
+      rows: this.rows,
+      cols: this.cols,
+      mineCount: this.mineCount,
+      board: this.board,
+      mines: [...this.mines],
+      cellStates: this.cellStates,
+      gameOver: this.gameOver,
+      won: this.won,
+      firstClick: this.firstClick,
+      revealedCount: this.revealedCount,
+      flaggedCount: this.flaggedCount,
+      startTime: this.startTime,
+      endTime: this.endTime,
+    }
+  }
+
+  static deserialize(data) {
+    const engine = Object.create(MinesweeperEngine.prototype)
+    engine.rows = data.rows
+    engine.cols = data.cols
+    engine.mineCount = data.mineCount
+    engine.board = data.board
+    engine.mines = new Set(data.mines)
+    engine.cellStates = data.cellStates
+    engine.gameOver = data.gameOver
+    engine.won = data.won
+    engine.firstClick = data.firstClick
+    engine.revealedCount = data.revealedCount
+    engine.flaggedCount = data.flaggedCount
+    engine.startTime = data.startTime
+    engine.endTime = data.endTime
+    return engine
+  }
 }

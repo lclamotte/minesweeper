@@ -63,7 +63,7 @@ export default function BootSequence() {
 
   return (
     <div className="w-full h-full flex items-center justify-center p-8">
-      <div className="max-w-2xl w-full font-mono text-sm leading-relaxed">
+      <div className="max-w-2xl w-full font-mono text-base leading-relaxed">
         {visibleLines.map((line, i) => (
           <div
             key={i}
@@ -74,7 +74,7 @@ export default function BootSequence() {
           </div>
         ))}
         {ready && (
-          <div className="mt-4 text-[var(--crt-green)] glow cursor-blink animate-pulse">
+          <div className="mt-4 text-[var(--crt-green)] glow cursor-blink animate-pulse text-lg">
             {'>'} _
           </div>
         )}

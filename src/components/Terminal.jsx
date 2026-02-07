@@ -3,10 +3,10 @@ import { useGameStore } from '../store/gameStore'
 import { getShopItems, UPGRADE_TYPE, UPGRADE_ART } from '../engine/upgrades'
 import { getNextNode } from '../engine/nodes'
 import { playClick } from '../audio/sounds'
+import { SignalWave, NetworkMap } from './AsciiAnim'
 
 export default function Terminal() {
   const [selectedCategory, setSelectedCategory] = useState('subroutine')
-  const [selectedItem, setSelectedItem] = useState(null)
   const [purchaseFlash, setPurchaseFlash] = useState(null)
 
   const cache = useGameStore(s => s.cache)
@@ -47,7 +47,7 @@ export default function Terminal() {
     if (item.type === UPGRADE_TYPE.KERNEL) {
       return (kernelLevels[item.id] || 0) < item.maxLevel
     }
-    return true // exploits can always be purchased
+    return true
   }
 
   const handlePurchase = (item) => {
@@ -66,60 +66,42 @@ export default function Terminal() {
   }
 
   const categories = [
-    { key: 'subroutine', label: 'SUBROUTINES', desc: 'passive upgrades that apply automatically each node' },
-    { key: 'exploit', label: 'EXPLOITS', desc: 'consumable abilities you activate during a node' },
-    { key: 'kernel', label: 'KERNEL', desc: 'permanent stat boosts that persist across nodes' },
+    { key: 'subroutine', label: 'SUBROUTINES', desc: 'Passive upgrades that enhance your scanning capabilities. Effects persist across all nodes.' },
+    { key: 'exploit', label: 'EXPLOITS', desc: 'Single-use tools deployed during a scan. Consumed on activation — stock up before each node.' },
+    { key: 'kernel', label: 'KERNEL', desc: 'Core system optimizations. Increase base stats like firewall integrity and cache capacity.' },
   ]
 
-  const activeCategory = categories.find(c => c.key === selectedCategory)
-
   return (
-    <div className="w-full h-full flex flex-col p-6 overflow-hidden">
-      {/* Terminal header */}
-      <div className="mb-4">
-        <div className="flex items-center gap-2 text-xs text-[var(--crt-green-dim)]">
-          <span>root@rootsweep</span>
-          <span className="text-[var(--crt-green)]">:</span>
-          <span className="text-[var(--crt-amber)]">~/terminal</span>
-          <span className="text-[var(--crt-green)]">$</span>
-          <span className="text-[var(--crt-green)] glow">compile --interactive</span>
+    <div className="w-full h-full flex flex-col overflow-hidden">
+      {/* Header bar */}
+      <div className="shrink-0 px-5 py-3 border-b border-[var(--crt-green-dark)] flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-[var(--crt-green)] glow-strong tracking-[0.4em] font-bold text-lg">TERMINAL</span>
+          <span className="text-[var(--crt-green-dim)] text-sm">//</span>
+          <span className="text-[var(--crt-green-dim)] text-sm">COMPILE YOUR BUILD</span>
+          <NetworkMap activeNode={currentNodeId + 1} className="text-xs text-[var(--crt-green-dim)] ml-2 hidden lg:block" />
         </div>
-        <div className="flex items-center justify-between mt-3">
-          <div>
-            <h1 className="text-lg text-[var(--crt-green)] glow-strong tracking-[0.5em] font-bold">
-              TERMINAL
-            </h1>
-            <p className="text-[10px] text-[var(--crt-green-dim)] tracking-[0.3em] mt-1">
-              COMPILE YOUR BUILD // SELECT UPGRADES
-            </p>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--crt-green-dim)] text-sm">FIREWALL</span>
+            <span className="text-[var(--crt-green)] font-bold text-lg">{firewalls}/{maxFirewalls}</span>
           </div>
-          <div className="text-right">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-[var(--crt-green-dim)]">CACHE</span>
-              <span className="text-lg text-[var(--crt-amber)] glow-amber font-bold tabular-nums">
-                ${cache}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] text-[var(--crt-green-dim)]">FIREWALL</span>
-              <span className="text-sm text-[var(--crt-green)] tabular-nums">
-                {firewalls}/{maxFirewalls}
-              </span>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--crt-green-dim)] text-sm">CACHE</span>
+            <span className="text-[var(--crt-amber)] glow-amber font-bold text-xl tabular-nums">${cache}</span>
           </div>
         </div>
-        <div className="w-full h-px bg-[var(--crt-green-dark)] mt-3" />
       </div>
 
-      {/* Category tabs */}
-      <div className="flex items-center gap-2 mb-4">
+      {/* Category tabs — centered, full width */}
+      <div className="shrink-0 flex items-center justify-center gap-2 px-5 py-3 border-b border-[var(--crt-green-dark)]">
         {categories.map(cat => {
           const isActive = selectedCategory === cat.key
           return (
             <button
               key={cat.key}
-              onClick={() => { setSelectedCategory(cat.key); setSelectedItem(null) }}
-              className={`text-[10px] py-1 px-3 border font-bold tracking-wider transition-all ${
+              onClick={() => setSelectedCategory(cat.key)}
+              className={`text-sm py-2 px-6 border font-bold tracking-wider transition-all ${
                 isActive
                   ? 'bg-[var(--crt-green)] text-black border-[var(--crt-green)] shadow-[0_0_8px_var(--crt-green-glow)]'
                   : 'bg-transparent text-[var(--crt-green-dim)] border-[var(--crt-green-dark)] hover:border-[var(--crt-green-dim)] hover:text-[var(--crt-green)]'
@@ -129,68 +111,69 @@ export default function Terminal() {
             </button>
           )
         })}
-        <span className="text-[10px] text-[var(--crt-green-dim)] ml-2 italic">
-          // {activeCategory?.desc}
-        </span>
+      </div>
+
+      {/* Category description */}
+      <div className="shrink-0 px-5 py-2.5 text-center">
+        <p className="text-[var(--crt-green-dim)] text-sm leading-relaxed">
+          {categories.find(c => c.key === selectedCategory)?.desc}
+        </p>
       </div>
 
       {/* Items grid */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="flex-1 min-h-0 overflow-y-auto p-5">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
           {items.map(item => {
             const owned = getOwnedInfo(item)
             const canBuy = canPurchase(item)
             const isFlashing = purchaseFlash === item.id
+            const art = UPGRADE_ART[item.id]
 
             return (
               <div
                 key={item.id}
-                onClick={() => setSelectedItem(item)}
-                className={`border p-3 cursor-pointer transition-all ${
+                className={`border flex flex-col items-center p-5 transition-all ${
                   isFlashing
                     ? 'border-[var(--crt-amber)] bg-[var(--crt-amber-dark)]'
-                    : selectedItem?.id === item.id
-                      ? 'border-[var(--crt-green)] bg-[#0a1a0a]'
-                      : 'border-[var(--crt-green-dark)] hover:border-[var(--crt-green-dim)]'
+                    : 'border-[var(--crt-green-dark)] hover:border-[var(--crt-green-dim)]'
                 }`}
               >
-                <div className="flex gap-3">
-                  {/* ASCII art icon */}
-                  {UPGRADE_ART[item.id] && (
-                    <pre className="text-[9px] leading-[1.1] text-[var(--crt-green-dim)] shrink-0 select-none font-mono self-center">
-                      {UPGRADE_ART[item.id].join('\n')}
-                    </pre>
-                  )}
+                {/* ASCII art — large and centered */}
+                {art && (
+                  <pre className={`text-[clamp(1rem,2.5vh,1.6rem)] leading-[1.15] select-none font-mono text-center transition-colors ${
+                    isFlashing ? 'text-[var(--crt-amber)] glow-amber' : 'text-[var(--crt-green)] glow'
+                  }`}>
+                    {art.join('\n')}
+                  </pre>
+                )}
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-[var(--crt-green)] text-xs font-bold truncate">{item.name}</p>
-                      <div className="text-right shrink-0">
-                        <p className="text-[var(--crt-amber)] text-xs font-bold">${item.cost}</p>
-                        {owned && (
-                          <p className="text-[var(--crt-cyan)] text-[9px]">{owned}</p>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-[var(--crt-green-dim)] text-[10px] mt-1 leading-relaxed">
-                      {item.description}
-                    </p>
+                {/* Name */}
+                <div className="text-[var(--crt-green)] font-bold text-base tracking-wider mt-3 text-center">
+                  {item.name}
+                </div>
 
-                    {/* Purchase button */}
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="text-[9px] text-[var(--crt-green-dark)]">{item.effect}</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handlePurchase(item) }}
-                        disabled={!canBuy}
-                        className={`terminal-btn text-[9px] py-0.5 px-2 ${
-                          !canBuy ? '' : 'terminal-btn-amber'
-                        }`}
-                      >
-                        {!canBuy && cache < item.cost ? 'INSUFFICIENT' : !canBuy ? 'MAX' : 'COMPILE'}
-                      </button>
-                    </div>
+                {/* Owned badge */}
+                {owned && (
+                  <div className="text-[var(--crt-cyan)] text-xs mt-1 tracking-wider">
+                    {owned}
                   </div>
+                )}
+
+                {/* Description */}
+                <p className="text-[var(--crt-green-dim)] text-sm mt-2 leading-relaxed text-center flex-1">
+                  {item.description}
+                </p>
+
+                {/* Purchase row */}
+                <div className="mt-4 flex items-center gap-3 w-full justify-center">
+                  <span className="text-[var(--crt-amber)] glow-amber font-bold text-lg tabular-nums">${item.cost}</span>
+                  <button
+                    onClick={() => handlePurchase(item)}
+                    disabled={!canBuy}
+                    className={`terminal-btn text-xs py-1.5 px-4 ${canBuy ? 'terminal-btn-amber' : ''}`}
+                  >
+                    {!canBuy && cache < item.cost ? 'INSUFFICIENT' : !canBuy ? 'MAXED' : 'COMPILE'}
+                  </button>
                 </div>
               </div>
             )
@@ -198,16 +181,21 @@ export default function Terminal() {
         </div>
       </div>
 
-      {/* Proceed button */}
-      <div className="mt-4 pt-4 border-t border-[var(--crt-green-dark)] flex items-center justify-between">
-        <div className="text-[10px] text-[var(--crt-green-dim)]">
-          {nextNode && (
-            <span>NEXT: {nextNode.name} // {nextNode.rows}x{nextNode.cols} // {nextNode.mines} MINES</span>
-          )}
+      {/* Proceed bar */}
+      <div className="shrink-0 border-t border-[var(--crt-green-dark)]">
+        <div className="flex justify-center py-1">
+          <SignalWave width={60} speed={100} className="text-[0.6rem] text-[var(--crt-green-dark)] opacity-50" />
         </div>
-        <button onClick={handleProceed} className="terminal-btn px-6 py-2">
-          [ INJECT &gt;&gt; NODE {currentNodeId + 1} ]
-        </button>
+        <div className="px-5 py-3 flex items-center justify-between">
+          <div className="text-sm text-[var(--crt-green-dim)]">
+            {nextNode && (
+              <span>NEXT: {nextNode.name} // {nextNode.rows}x{nextNode.cols} // {nextNode.mines} MINES</span>
+            )}
+          </div>
+          <button onClick={handleProceed} className="terminal-btn text-sm px-8 py-2.5">
+            [ INJECT &gt;&gt; NODE {currentNodeId + 1} ]
+          </button>
+        </div>
       </div>
     </div>
   )

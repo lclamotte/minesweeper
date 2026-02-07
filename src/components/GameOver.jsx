@@ -26,17 +26,17 @@ export default function GameOver() {
 
   return (
     <div className="w-full h-full flex items-center justify-center p-8">
-      <div className="max-w-md w-full text-center fade-in">
-        <pre className="text-[var(--crt-red)] glow-red text-xs leading-none mb-4">{SKULL}</pre>
+      <div className="max-w-lg w-full text-center fade-in">
+        <pre className="text-[var(--crt-red)] glow-red text-base leading-tight mb-6">{SKULL}</pre>
 
-        <h1 className="text-2xl text-[var(--crt-red)] glow-red tracking-[0.5em] font-bold">
+        <h1 className="text-3xl text-[var(--crt-red)] glow-red tracking-[0.5em] font-bold">
           SYSTEM CRASH
         </h1>
-        <p className="text-[var(--crt-red)] text-xs mt-2 opacity-70 tracking-[0.3em]">
+        <p className="text-[var(--crt-red)] text-sm mt-3 opacity-70 tracking-[0.3em]">
           ALL FIREWALLS BREACHED // CONNECTION LOST
         </p>
 
-        <div className="border border-[var(--crt-red)] border-opacity-30 p-4 mt-6 space-y-2 text-xs">
+        <div className="border border-[var(--crt-red)] border-opacity-30 p-5 mt-8 space-y-3 text-base">
           <div className="flex justify-between">
             <span className="text-[var(--crt-green-dim)]">LAST NODE</span>
             <span className="text-[var(--crt-green)]">{node.name}</span>
@@ -55,7 +55,7 @@ export default function GameOver() {
           </div>
         </div>
 
-        <button onClick={handleRestart} className="terminal-btn-red terminal-btn mt-8 px-8 py-2">
+        <button onClick={handleRestart} className="terminal-btn-red terminal-btn text-base mt-10 px-10 py-3">
           [ REBOOT SYSTEM ]
         </button>
       </div>

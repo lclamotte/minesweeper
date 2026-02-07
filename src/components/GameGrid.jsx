@@ -39,13 +39,13 @@ export default function GameGrid() {
     }
   }, [engine, showPacketSniffer])
 
-  // Fit canvas to container
+  // Fit canvas to container — fill aggressively
   useEffect(() => {
     if (!containerRef.current || !engine) return
     const dims = getGridDimensions()
     const container = containerRef.current
-    const maxW = container.clientWidth * 0.92
-    const maxH = container.clientHeight * 0.92
+    const maxW = container.clientWidth * 0.96
+    const maxH = container.clientHeight * 0.98
     const scale = Math.min(maxW / dims.width, maxH / dims.height)
     setCanvasScale(scale)
   }, [engine, getGridDimensions])
@@ -284,9 +284,6 @@ export default function GameGrid() {
           onClick={handleClick}
           onContextMenu={handleContextMenu}
         />
-      </div>
-      <div className="text-[var(--crt-green-dark)] text-[10px] mt-3 tracking-wider select-none">
-        LEFT CLICK: REVEAL &nbsp;|&nbsp; RIGHT CLICK: FLAG
       </div>
     </div>
   )

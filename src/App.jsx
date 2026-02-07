@@ -8,6 +8,7 @@ import NodeComplete from './components/NodeComplete'
 import Terminal from './components/Terminal'
 import GameOver from './components/GameOver'
 import WinScreen from './components/WinScreen'
+import CommandOverlay from './components/CommandOverlay'
 
 export default function App() {
   const phase = useGameStore(s => s.phase)
@@ -31,6 +32,7 @@ export default function App() {
         {phase === GAME_PHASE.TERMINAL && <Terminal />}
         {phase === GAME_PHASE.GAME_OVER && <GameOver />}
         {phase === GAME_PHASE.WIN && <WinScreen />}
+        <CommandOverlay />
       </div>
     </div>
   )
