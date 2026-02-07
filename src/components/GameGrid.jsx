@@ -1,29 +1,37 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react'
-import { useGameStore, GAME_PHASE } from '../store/gameStore'
+import { useGameStore } from '../store/gameStore'
 import { CELL_STATE } from '../engine/MinesweeperEngine'
 import { getCanvasColors } from '../themes'
 
 const CELL_SIZE = 32
 const CELL_GAP = 1
 const HEADER_SIZE = 24 // for packet sniffer row/col labels
+const LEDGER_LINK_RGB = '57, 255, 20'
 
 export default function GameGrid() {
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
   const [hoveredCell, setHoveredCell] = useState(null)
   const [canvasScale, setCanvasScale] = useState(1)
+  const [animTick, setAnimTick] = useState(0)
 
   const currentTheme = useGameStore(s => s.currentTheme)
   const COLORS = useMemo(() => getCanvasColors(currentTheme), [currentTheme])
 
   const engine = useGameStore(s => s.engine)
-  const phase = useGameStore(s => s.phase)
   const revealCell = useGameStore(s => s.revealCell)
   const flagCell = useGameStore(s => s.flagCell)
   const deepScanActive = useGameStore(s => s.deepScanActive)
+  const sqlInjectActive = useGameStore(s => s.sqlInjectActive)
   const deepScanResults = useGameStore(s => s.deepScanResults)
   const useDeepScan = useGameStore(s => s.useDeepScan)
+  const useSqlInject = useGameStore(s => s.useSqlInject)
   const mineExplosions = useGameStore(s => s.mineExplosions)
+  const ledgerEnabled = useGameStore(s => (s.subroutines.ledger_link || 0) > 0)
+  const bruteForceEnabled = useGameStore(s => (s.subroutines.brute_force || 0) > 0)
+  const deepPacketEnabled = useGameStore(s => (s.subroutines.deep_packet || 0) > 0)
+  const ledgerLinks = useGameStore(s => s.ledgerLinks)
+  const ledgerPulse = useGameStore(s => s.ledgerPulse)
   const showPacketSniffer = useGameStore(s => s.showPacketSniffer)
   const rowMineCounts = useGameStore(s => s.rowMineCounts)
   const colMineCounts = useGameStore(s => s.colMineCounts)
@@ -39,7 +47,6 @@ export default function GameGrid() {
     }
   }, [engine, showPacketSniffer])
 
-  // Fit canvas to container — fill aggressively
   useEffect(() => {
     if (!containerRef.current || !engine) return
     const dims = getGridDimensions()
@@ -50,7 +57,15 @@ export default function GameGrid() {
     setCanvasScale(scale)
   }, [engine, getGridDimensions])
 
-  // Canvas rendering
+  useEffect(() => {
+    const hasAnimatedState = ledgerEnabled || bruteForceEnabled || deepPacketEnabled || deepScanActive || sqlInjectActive
+    if (!hasAnimatedState && !ledgerPulse) return
+    const interval = setInterval(() => {
+      setAnimTick(tick => tick + 1)
+    }, 90)
+    return () => clearInterval(interval)
+  }, [ledgerEnabled, bruteForceEnabled, deepPacketEnabled, deepScanActive, sqlInjectActive, ledgerPulse])
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !engine) return
@@ -64,31 +79,26 @@ export default function GameGrid() {
     canvas.style.height = `${dims.height}px`
     ctx.scale(dpr, dpr)
 
-    // Clear
     ctx.fillStyle = COLORS.bg
     ctx.fillRect(0, 0, dims.width, dims.height)
 
-    // Draw packet sniffer headers
     if (showPacketSniffer && rowMineCounts.length > 0) {
       ctx.font = '10px "Fira Code", monospace'
       ctx.fillStyle = COLORS.packetSnifferText
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
 
-      // Column headers
       for (let c = 0; c < engine.cols; c++) {
         const x = dims.offsetX + c * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
         ctx.fillText(String(colMineCounts[c] ?? ''), x, dims.offsetY / 2)
       }
 
-      // Row headers
       for (let r = 0; r < engine.rows; r++) {
         const y = dims.offsetY + r * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
         ctx.fillText(String(rowMineCounts[r] ?? ''), dims.offsetX / 2, y)
       }
     }
 
-    // Draw cells
     for (let r = 0; r < engine.rows; r++) {
       for (let c = 0; c < engine.cols; c++) {
         const x = dims.offsetX + c * (CELL_SIZE + CELL_GAP) + CELL_GAP
@@ -98,26 +108,22 @@ export default function GameGrid() {
         const isHovered = hoveredCell && hoveredCell.row === r && hoveredCell.col === c
 
         if (state === CELL_STATE.HIDDEN) {
-          // Hidden cell
           ctx.fillStyle = isHovered ? COLORS.hiddenHover : COLORS.hidden
           ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE)
           ctx.strokeStyle = COLORS.hiddenBorder
           ctx.lineWidth = 0.5
           ctx.strokeRect(x + 0.5, y + 0.5, CELL_SIZE - 1, CELL_SIZE - 1)
 
-          // Subtle grid dot
           ctx.fillStyle = COLORS.hiddenDot
           ctx.fillRect(x + CELL_SIZE / 2 - 0.5, y + CELL_SIZE / 2 - 0.5, 1, 1)
 
         } else if (state === CELL_STATE.FLAGGED) {
-          // Flagged cell
           ctx.fillStyle = COLORS.hidden
           ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE)
           ctx.strokeStyle = COLORS.flagStroke
           ctx.lineWidth = 1
           ctx.strokeRect(x + 0.5, y + 0.5, CELL_SIZE - 1, CELL_SIZE - 1)
 
-          // Flag symbol
           ctx.font = 'bold 16px "Fira Code", monospace'
           ctx.fillStyle = COLORS.flag
           ctx.textAlign = 'center'
@@ -125,7 +131,6 @@ export default function GameGrid() {
           ctx.fillText('⚑', x + CELL_SIZE / 2, y + CELL_SIZE / 2 + 1)
 
         } else if (state === CELL_STATE.REVEALED) {
-          // Revealed cell
           ctx.fillStyle = COLORS.revealed
           ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE)
           ctx.strokeStyle = COLORS.revealedBorder
@@ -133,7 +138,6 @@ export default function GameGrid() {
           ctx.strokeRect(x + 0.5, y + 0.5, CELL_SIZE - 1, CELL_SIZE - 1)
 
           if (value === -1) {
-            // Mine
             ctx.font = 'bold 16px "Fira Code", monospace'
             ctx.fillStyle = COLORS.mine
             ctx.textAlign = 'center'
@@ -141,16 +145,67 @@ export default function GameGrid() {
             ctx.fillText('✱', x + CELL_SIZE / 2, y + CELL_SIZE / 2 + 1)
           } else if (value > 0) {
             ctx.font = 'bold 14px "Fira Code", monospace'
-            ctx.fillStyle = COLORS.text[value] || '#ffffff'
             ctx.textAlign = 'center'
             ctx.textBaseline = 'middle'
+
+            if (bruteForceEnabled) {
+              if (value <= 2) {
+                ctx.fillStyle = 'rgba(120, 220, 120, 0.9)'
+              } else if (value <= 4) {
+                ctx.fillStyle = 'rgba(255, 176, 0, 0.95)'
+              } else {
+                const pulse = 0.55 + Math.abs(Math.sin((animTick + r + c) * 0.5)) * 0.45
+                ctx.fillStyle = `rgba(255, 40, 40, ${pulse})`
+                ctx.shadowColor = 'rgba(255, 40, 40, 0.8)'
+                ctx.shadowBlur = 6
+              }
+            } else {
+              ctx.fillStyle = COLORS.text[value] || '#ffffff'
+            }
+
             ctx.fillText(String(value), x + CELL_SIZE / 2, y + CELL_SIZE / 2 + 1)
+            ctx.shadowBlur = 0
           }
         }
       }
     }
 
-    // Draw deep scan overlay
+    if (ledgerEnabled && ledgerLinks.length > 0) {
+      ctx.save()
+      ctx.lineCap = 'round'
+      ctx.setLineDash([5, 3])
+
+      ledgerLinks.forEach((link, idx) => {
+        const fromX = dims.offsetX + link.from.col * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+        const fromY = dims.offsetY + link.from.row * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+        const toX = dims.offsetX + link.to.col * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+        const toY = dims.offsetY + link.to.row * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+        const flicker = 0.4 + Math.abs(Math.sin((animTick + idx * 5) * 0.65)) * 0.45
+
+        ctx.lineDashOffset = -((animTick * 0.8 + idx * 2) % 8)
+        ctx.lineWidth = 1.5
+        ctx.strokeStyle = `rgba(${LEDGER_LINK_RGB}, ${flicker})`
+        ctx.shadowColor = `rgba(${LEDGER_LINK_RGB}, 0.7)`
+        ctx.shadowBlur = 7
+        ctx.beginPath()
+        ctx.moveTo(fromX, fromY)
+        ctx.lineTo(toX, toY)
+        ctx.stroke()
+
+        ctx.setLineDash([])
+        ctx.shadowBlur = 0
+        ctx.lineWidth = 0.8
+        ctx.strokeStyle = `rgba(${LEDGER_LINK_RGB}, ${Math.min(1, flicker + 0.25)})`
+        ctx.beginPath()
+        ctx.moveTo(fromX, fromY)
+        ctx.lineTo(toX, toY)
+        ctx.stroke()
+        ctx.setLineDash([5, 3])
+      })
+
+      ctx.restore()
+    }
+
     if (deepScanResults) {
       deepScanResults.cells.forEach(cell => {
         const x = dims.offsetX + cell.col * (CELL_SIZE + CELL_GAP) + CELL_GAP
@@ -169,8 +224,29 @@ export default function GameGrid() {
       })
     }
 
-    // Draw mine explosion effects
     const now = Date.now()
+
+    if (ledgerEnabled && ledgerPulse) {
+      const age = now - ledgerPulse.time
+      if (age < 700 && Array.isArray(ledgerPulse.mines)) {
+        const progress = age / 700
+        ledgerPulse.mines.forEach(mine => {
+          const x = dims.offsetX + mine.col * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+          const y = dims.offsetY + mine.row * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+          const radius = progress * CELL_SIZE * 1.7
+          const alpha = 1 - progress
+
+          ctx.beginPath()
+          ctx.arc(x, y, radius, 0, Math.PI * 2)
+          ctx.fillStyle = `rgba(${LEDGER_LINK_RGB}, ${alpha * 0.16})`
+          ctx.fill()
+          ctx.strokeStyle = `rgba(${LEDGER_LINK_RGB}, ${alpha * 0.8})`
+          ctx.lineWidth = 1.2
+          ctx.stroke()
+        })
+      }
+    }
+
     mineExplosions.forEach(exp => {
       const age = now - exp.time
       if (age < 500) {
@@ -189,7 +265,6 @@ export default function GameGrid() {
       }
     })
 
-    // Deep scan cursor overlay
     if (deepScanActive && hoveredCell) {
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
@@ -205,9 +280,32 @@ export default function GameGrid() {
       }
     }
 
-  }, [engine, hoveredCell, deepScanResults, deepScanActive, mineExplosions, showPacketSniffer, rowMineCounts, colMineCounts, getGridDimensions, COLORS])
+    if (sqlInjectActive && hoveredCell) {
+      const row = hoveredCell.row
+      for (let c = 0; c < engine.cols; c++) {
+        const x = dims.offsetX + c * (CELL_SIZE + CELL_GAP) + CELL_GAP
+        const y = dims.offsetY + row * (CELL_SIZE + CELL_GAP) + CELL_GAP
+        ctx.fillStyle = 'rgba(255, 51, 51, 0.12)'
+        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE)
+      }
+    }
 
-  // Mouse event handlers
+    if (deepPacketEnabled && hoveredCell && engine.cellStates[hoveredCell.row][hoveredCell.col] === CELL_STATE.FLAGGED) {
+      const x = dims.offsetX + hoveredCell.col * (CELL_SIZE + CELL_GAP) + CELL_GAP + CELL_SIZE / 2
+      const y = dims.offsetY + hoveredCell.row * (CELL_SIZE + CELL_GAP) + CELL_GAP - 8
+      const isCorrect = engine.isMine(hoveredCell.row, hoveredCell.col)
+      const wobble = Math.round(Math.sin(animTick * 0.4) * 3)
+      const pct = isCorrect ? 92 + wobble : 14 + wobble
+
+      ctx.font = 'bold 10px "Fira Code", monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = isCorrect ? 'rgba(0,255,120,0.95)' : 'rgba(255,90,90,0.95)'
+      ctx.fillText(`${Math.max(1, Math.min(99, pct))}%`, x, y)
+    }
+
+  }, [engine, hoveredCell, deepScanResults, deepScanActive, sqlInjectActive, mineExplosions, ledgerEnabled, bruteForceEnabled, deepPacketEnabled, ledgerLinks, ledgerPulse, animTick, showPacketSniffer, rowMineCounts, colMineCounts, getGridDimensions, COLORS])
+
   const getCellFromEvent = useCallback((e) => {
     const canvas = canvasRef.current
     if (!canvas || !engine) return null
@@ -244,8 +342,13 @@ export default function GameGrid() {
       return
     }
 
+    if (sqlInjectActive) {
+      useSqlInject(cell.row)
+      return
+    }
+
     revealCell(cell.row, cell.col)
-  }, [getCellFromEvent, revealCell, deepScanActive, useDeepScan])
+  }, [getCellFromEvent, revealCell, deepScanActive, sqlInjectActive, useDeepScan, useSqlInject])
 
   const handleContextMenu = useCallback((e) => {
     e.preventDefault()
@@ -256,7 +359,6 @@ export default function GameGrid() {
   if (!engine) return null
 
   const dims = getGridDimensions()
-
   const scaledWidth = dims.width * canvasScale
   const scaledHeight = dims.height * canvasScale
 
@@ -274,7 +376,7 @@ export default function GameGrid() {
             transform: `scale(${canvasScale})`,
             transformOrigin: 'top left',
             imageRendering: 'pixelated',
-            cursor: deepScanActive ? 'cell' : 'crosshair',
+            cursor: deepScanActive || sqlInjectActive ? 'cell' : 'crosshair',
             position: 'absolute',
             top: 0,
             left: 0,

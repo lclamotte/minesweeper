@@ -2,10 +2,10 @@ import { useEffect } from 'react'
 import { useGameStore, GAME_PHASE } from './store/gameStore'
 import BootSequence from './components/BootSequence'
 import TitleScreen from './components/TitleScreen'
-import GameGrid from './components/GameGrid'
 import HUD from './components/HUD'
 import NodeComplete from './components/NodeComplete'
 import Terminal from './components/Terminal'
+import GridWorkspace from './components/GridWorkspace'
 import GameOver from './components/GameOver'
 import WinScreen from './components/WinScreen'
 import CommandOverlay from './components/CommandOverlay'
@@ -25,7 +25,7 @@ export default function App() {
         {phase === GAME_PHASE.GRID && (
           <>
             <HUD />
-            <GameGrid />
+            <GridWorkspace />
           </>
         )}
         {phase === GAME_PHASE.NODE_COMPLETE && <NodeComplete />}

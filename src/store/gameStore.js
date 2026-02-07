@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MinesweeperEngine, CELL_STATE } from '../engine/MinesweeperEngine'
-import { getNode, getNextNode, NODES } from '../engine/nodes'
+import { getNode, getNextNode } from '../engine/nodes'
 import { UPGRADES, UPGRADE_TYPE } from '../engine/upgrades'
 import { applyTheme, THEMES } from '../themes'
 import * as sfx from '../audio/sounds'
@@ -16,6 +16,220 @@ export const GAME_PHASE = {
 }
 
 const SAVE_KEY = 'datamines-save'
+const LEDGER_BLOCK_SIZE = 5
+
+const makeCellKey = (row, col) => `${row},${col}`
+
+function cloneEngine(engine) {
+  return Object.assign(Object.create(Object.getPrototypeOf(engine)), engine)
+}
+
+function randomFrom(arr) {
+  if (!arr || arr.length === 0) return null
+  return arr[Math.floor(Math.random() * arr.length)]
+}
+
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = arr[i]
+    arr[i] = arr[j]
+    arr[j] = tmp
+  }
+  return arr
+}
+
+function rebuildAdjacency(engine) {
+  for (let r = 0; r < engine.rows; r++) {
+    for (let c = 0; c < engine.cols; c++) {
+      engine.board[r][c] = 0
+    }
+  }
+
+  for (const key of engine.mines) {
+    const [r, c] = key.split(',').map(Number)
+    engine.board[r][c] = -1
+  }
+
+  for (let r = 0; r < engine.rows; r++) {
+    for (let c = 0; c < engine.cols; c++) {
+      if (engine.board[r][c] === -1) continue
+      let count = 0
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue
+          const nr = r + dr
+          const nc = c + dc
+          if (nr >= 0 && nr < engine.rows && nc >= 0 && nc < engine.cols && engine.board[nr][nc] === -1) {
+            count++
+          }
+        }
+      }
+      engine.board[r][c] = count
+    }
+  }
+}
+
+function relocateMine(engine, fromRow, fromCol, bannedKeys = new Set()) {
+  const sourceKey = makeCellKey(fromRow, fromCol)
+  if (!engine.mines.has(sourceKey)) return false
+
+  const candidates = []
+  for (let r = 0; r < engine.rows; r++) {
+    for (let c = 0; c < engine.cols; c++) {
+      const key = makeCellKey(r, c)
+      if (engine.mines.has(key)) continue
+      if (bannedKeys.has(key)) continue
+      if (engine.cellStates[r][c] !== CELL_STATE.HIDDEN) continue
+      candidates.push({ row: r, col: c, key })
+    }
+  }
+
+  const target = randomFrom(candidates)
+  if (!target) return false
+
+  engine.mines.delete(sourceKey)
+  engine.mines.add(target.key)
+  return true
+}
+
+function forceZeroAt(engine, row, col) {
+  if (engine.firstClick) return
+
+  const forbidden = new Set()
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const nr = row + dr
+      const nc = col + dc
+      if (nr >= 0 && nr < engine.rows && nc >= 0 && nc < engine.cols) {
+        forbidden.add(makeCellKey(nr, nc))
+      }
+    }
+  }
+
+  const moveTargets = []
+  if (engine.isMine(row, col)) {
+    moveTargets.push([row, col])
+  }
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue
+      const nr = row + dr
+      const nc = col + dc
+      if (nr >= 0 && nr < engine.rows && nc >= 0 && nc < engine.cols && engine.isMine(nr, nc)) {
+        moveTargets.push([nr, nc])
+      }
+    }
+  }
+
+  for (const [mr, mc] of moveTargets) {
+    relocateMine(engine, mr, mc, forbidden)
+  }
+
+  rebuildAdjacency(engine)
+}
+
+function buildLedgerLinks(mineOrder) {
+  const links = []
+  for (let i = 1; i < mineOrder.length; i++) {
+    const current = mineOrder[i]
+    let nearestIdx = 0
+    let nearestDist = Number.POSITIVE_INFINITY
+
+    for (let j = i - 1; j >= 0; j--) {
+      const previous = mineOrder[j]
+      const dr = current.row - previous.row
+      const dc = current.col - previous.col
+      const dist = dr * dr + dc * dc
+      if (dist < nearestDist) {
+        nearestDist = dist
+        nearestIdx = j
+      }
+    }
+
+    const nearest = mineOrder[nearestIdx]
+    links.push({
+      from: { row: nearest.row, col: nearest.col },
+      to: { row: current.row, col: current.col },
+      time: current.flaggedAt,
+    })
+  }
+  return links
+}
+
+function revealLedgerBlockAdjacents(engine, blockMines) {
+  const targets = new Set()
+  const revealed = []
+
+  for (const mine of blockMines) {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue
+        const row = mine.row + dr
+        const col = mine.col + dc
+        if (row < 0 || row >= engine.rows || col < 0 || col >= engine.cols) continue
+        if (engine.isMine(row, col)) continue
+        targets.add(makeCellKey(row, col))
+      }
+    }
+  }
+
+  for (const target of targets) {
+    const [row, col] = target.split(',').map(Number)
+    if (engine.getCellState(row, col) !== CELL_STATE.HIDDEN) continue
+    const result = engine.reveal(row, col)
+    if (!result.hit && result.cells.length > 0) {
+      revealed.push(...result.cells)
+    }
+  }
+
+  return revealed
+}
+
+function getRandomAdjacentHiddenSafe(engine, row, col) {
+  const candidates = []
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue
+      const nr = row + dr
+      const nc = col + dc
+      if (nr < 0 || nr >= engine.rows || nc < 0 || nc >= engine.cols) continue
+      if (engine.cellStates[nr][nc] !== CELL_STATE.HIDDEN) continue
+      if (engine.isMine(nr, nc)) continue
+      candidates.push([nr, nc])
+    }
+  }
+  return randomFrom(candidates)
+}
+
+function miningRigReward(state, revealedCount, ledgerMineCount) {
+  if ((state.subroutines.mining_rig || 0) < 1 || revealedCount <= 0) {
+    return { cacheBonus: 0, nextProgress: state.miningRigProgress }
+  }
+
+  const total = state.miningRigProgress + revealedCount
+  const chunks = Math.floor(total / 10)
+  const multiplier = ledgerMineCount >= LEDGER_BLOCK_SIZE ? 2 : 1
+
+  return {
+    cacheBonus: chunks * multiplier,
+    nextProgress: total % 10,
+  }
+}
+
+function entropyReward(state, revealedCount, now) {
+  if (revealedCount <= 0) return 0
+  const harvest = state.subroutines.entropy_harvester ? state.subroutines.entropy_harvester : 1
+  const overclockMult = state.overclockUntil > now ? 3 : 1
+  return revealedCount * harvest * overclockMult
+}
+
+function consumeExploit(state, id) {
+  return {
+    ...state.exploits,
+    [id]: Math.max(0, (state.exploits[id] || 0) - 1),
+  }
+}
 
 function saveGame(state) {
   const data = {
@@ -28,12 +242,21 @@ function saveGame(state) {
     subroutines: state.subroutines,
     exploits: state.exploits,
     kernelLevels: state.kernelLevels,
+    rootAccess: state.rootAccess,
     phase: state.phase,
     engine: state.engine ? state.engine.serialize() : null,
     elapsed: state.elapsed,
     showPacketSniffer: state.showPacketSniffer,
     rowMineCounts: state.rowMineCounts,
     colMineCounts: state.colMineCounts,
+    ledgerLinks: state.ledgerLinks,
+    ledgerMineOrder: state.ledgerMineOrder,
+    ledgerValidatedBlocks: state.ledgerValidatedBlocks,
+    ledgerPulse: state.ledgerPulse,
+    zeroDayClicksUsed: state.zeroDayClicksUsed,
+    miningRigProgress: state.miningRigProgress,
+    overclockUntil: state.overclockUntil,
+    sqlInjectActive: state.sqlInjectActive,
   }
   localStorage.setItem(SAVE_KEY, JSON.stringify(data))
 }
@@ -42,7 +265,9 @@ function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY)
     return raw ? JSON.parse(raw) : null
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
 
 export function clearSave() {
@@ -70,15 +295,18 @@ const store = create((set, get) => ({
   cache: 0,
   entropy: 0,
   totalCacheEarned: 0,
+  rootAccess: true,
 
   // Upgrades
-  subroutines: {},   // { upgradeId: level }
-  exploits: {},      // { upgradeId: chargesRemaining }
-  kernelLevels: {},  // { upgradeId: level }
+  subroutines: {},
+  exploits: {},
+  kernelLevels: {},
 
   // Active ability state
   deepScanActive: false,
+  sqlInjectActive: false,
   deepScanResults: null,
+  overclockUntil: 0,
 
   // Engine reference
   engine: null,
@@ -95,6 +323,12 @@ const store = create((set, get) => ({
   rowMineCounts: [],
   colMineCounts: [],
   soundEnabled: true,
+  ledgerLinks: [],
+  ledgerMineOrder: [],
+  ledgerValidatedBlocks: 0,
+  ledgerPulse: null,
+  zeroDayClicksUsed: 0,
+  miningRigProgress: 0,
 
   // Timer
   elapsed: 0,
@@ -129,15 +363,24 @@ const store = create((set, get) => ({
       cache: 0,
       entropy: 0,
       totalCacheEarned: 0,
+      rootAccess: true,
       subroutines: {},
       exploits: {},
       kernelLevels: {},
       deepScanActive: false,
+      sqlInjectActive: false,
       deepScanResults: null,
+      overclockUntil: 0,
       revealAnimations: [],
       mineExplosions: [],
       nodeCompleteData: null,
       elapsed: 0,
+      ledgerLinks: [],
+      ledgerMineOrder: [],
+      ledgerValidatedBlocks: 0,
+      ledgerPulse: null,
+      zeroDayClicksUsed: 0,
+      miningRigProgress: 0,
     })
     get().initNode(1)
   },
@@ -145,6 +388,7 @@ const store = create((set, get) => ({
   resumeRun: () => {
     const save = loadGame()
     if (!save) return
+
     set({
       currentNodeId: save.currentNodeId,
       firewalls: save.firewalls,
@@ -152,20 +396,29 @@ const store = create((set, get) => ({
       cache: save.cache,
       entropy: save.entropy,
       totalCacheEarned: save.totalCacheEarned,
+      rootAccess: save.rootAccess ?? true,
       subroutines: save.subroutines,
       exploits: save.exploits,
       kernelLevels: save.kernelLevels,
       deepScanActive: false,
+      sqlInjectActive: false,
       deepScanResults: null,
+      overclockUntil: save.overclockUntil || 0,
       revealAnimations: [],
       mineExplosions: [],
       nodeCompleteData: null,
       elapsed: save.elapsed || 0,
+      ledgerLinks: save.ledgerLinks || [],
+      ledgerMineOrder: save.ledgerMineOrder || [],
+      ledgerValidatedBlocks: save.ledgerValidatedBlocks || 0,
+      ledgerPulse: save.ledgerPulse || null,
+      zeroDayClicksUsed: save.zeroDayClicksUsed || 0,
+      miningRigProgress: save.miningRigProgress || 0,
     })
+
     if (save.phase === GAME_PHASE.TERMINAL || save.phase === GAME_PHASE.NODE_COMPLETE) {
       set({ phase: GAME_PHASE.TERMINAL, entropy: 0 })
     } else if (save.phase === GAME_PHASE.GRID && save.engine) {
-      // Restore exact grid state from save
       const engine = MinesweeperEngine.deserialize(save.engine)
       set({
         engine,
@@ -174,7 +427,6 @@ const store = create((set, get) => ({
         rowMineCounts: save.rowMineCounts || [],
         colMineCounts: save.colMineCounts || [],
       })
-      // Resume the timer if the grid is in progress (mines placed)
       if (!engine.firstClick && !engine.gameOver) {
         get().startTimer()
       }
@@ -194,10 +446,8 @@ const store = create((set, get) => ({
     const engine = new MinesweeperEngine(node.rows, node.cols, node.mines)
     const state = get()
 
-    // Clear previous timer
     if (state.timerInterval) clearInterval(state.timerInterval)
 
-    // Packet sniffer state
     const hasPacketSniffer = (state.subroutines.packet_sniffer || 0) >= 1
 
     set({
@@ -206,24 +456,34 @@ const store = create((set, get) => ({
       revealAnimations: [],
       mineExplosions: [],
       deepScanActive: false,
+      sqlInjectActive: false,
       deepScanResults: null,
+      overclockUntil: 0,
       showPacketSniffer: hasPacketSniffer,
       rowMineCounts: [],
       colMineCounts: [],
       elapsed: 0,
       phase: GAME_PHASE.GRID,
+      ledgerLinks: [],
+      ledgerMineOrder: [],
+      ledgerValidatedBlocks: 0,
+      ledgerPulse: null,
+      zeroDayClicksUsed: 0,
+      miningRigProgress: 0,
     })
   },
 
   startTimer: () => {
     const state = get()
     if (state.timerInterval) clearInterval(state.timerInterval)
+
     const interval = setInterval(() => {
       const engine = get().engine
       if (engine && engine.startTime) {
         set({ elapsed: engine.getElapsedTime() })
       }
     }, 1000)
+
     set({ timerInterval: interval })
   },
 
@@ -240,44 +500,93 @@ const store = create((set, get) => ({
     const { engine, soundEnabled } = state
     if (!engine || engine.gameOver) return
 
-    // Start timer on first click
+    const wasHidden = engine.getCellState(row, col) === CELL_STATE.HIDDEN
+
     if (engine.firstClick) {
       get().startTimer()
     }
 
+    if ((state.subroutines.zero_day || 0) >= 1 && state.zeroDayClicksUsed < 3 && wasHidden && !engine.firstClick) {
+      forceZeroAt(engine, row, col)
+    }
+
+    const now = Date.now()
     const result = engine.reveal(row, col)
 
     if (result.hit) {
-      // Hit a mine
       if (soundEnabled) sfx.playExplosion()
       const newFirewalls = state.firewalls - 1
 
-      set({
-        mineExplosions: [...state.mineExplosions, { row, col, time: Date.now() }],
+      const updates = {
+        mineExplosions: [...state.mineExplosions, { row, col, time: now }],
         firewalls: newFirewalls,
-      })
+      }
 
       if (newFirewalls <= 0) {
-        // Game over
         get().stopTimer()
         engine.gameOver = true
-        engine.endTime = Date.now()
+        engine.endTime = now
         const allMines = engine.revealAllMines()
         set({
+          ...updates,
           phase: GAME_PHASE.GAME_OVER,
-          mineExplosions: [...get().mineExplosions, ...allMines.map(m => ({ ...m, time: Date.now() }))],
+          mineExplosions: [...updates.mineExplosions, ...allMines.map(m => ({ ...m, time: now }))],
+          engine: cloneEngine(engine),
         })
         clearSave()
-      } else {
-        // Firewall absorbed it — re-hide the cell and continue
-        engine.cellStates[row][col] = CELL_STATE.HIDDEN
-        engine.revealedCount = Math.max(0, engine.revealedCount)
-        saveGame(get())
+        return
       }
-      // Force re-render
-      set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
-    } else if (result.cells.length > 0) {
-      // Successful reveal
+
+      if ((state.subroutines.hot_swap || 0) >= 1) {
+        const mineKey = makeCellKey(row, col)
+        engine.mines.delete(mineKey)
+        engine.mineCount = Math.max(0, engine.mineCount - 1)
+        engine.cellStates[row][col] = CELL_STATE.HIDDEN
+        rebuildAdjacency(engine)
+
+        const auto = getRandomAdjacentHiddenSafe(engine, row, col)
+        let autoCells = []
+        if (auto) {
+          const autoResult = engine.reveal(auto[0], auto[1])
+          if (!autoResult.hit && autoResult.cells.length > 0) {
+            autoCells = autoResult.cells
+          }
+        }
+
+        if (autoCells.length > 0) {
+          const entropyBonus = entropyReward(state, autoCells.length, now)
+          const { cacheBonus, nextProgress } = miningRigReward(state, autoCells.length, state.ledgerMineOrder.length)
+          updates.entropy = state.entropy + entropyBonus
+          updates.cache = state.cache + cacheBonus
+          updates.miningRigProgress = nextProgress
+          updates.revealAnimations = [...state.revealAnimations, ...autoCells.map(cell => ({ ...cell, time: now }))]
+          if (soundEnabled) {
+            autoCells.slice(0, 6).forEach((_, i) => sfx.playCascade(i))
+          }
+        }
+      } else {
+        engine.cellStates[row][col] = CELL_STATE.HIDDEN
+      }
+
+      if ((state.subroutines.zero_day || 0) >= 1 && state.zeroDayClicksUsed < 3 && wasHidden) {
+        updates.zeroDayClicksUsed = state.zeroDayClicksUsed + 1
+      }
+
+      updates.engine = cloneEngine(engine)
+      set(updates)
+
+      if (engine.won) {
+        get().stopTimer()
+        if (soundEnabled) sfx.playWin()
+        get().completeNode()
+        return
+      }
+
+      saveGame(get())
+      return
+    }
+
+    if (result.cells.length > 0) {
       if (soundEnabled) {
         if (result.cells.length > 1) {
           result.cells.slice(0, 8).forEach((_, i) => sfx.playCascade(i))
@@ -286,26 +595,32 @@ const store = create((set, get) => ({
         }
       }
 
-      // Calculate entropy from reveal
-      const entropyBonus = state.subroutines.entropy_harvester
-        ? result.cells.length * (state.subroutines.entropy_harvester)
-        : result.cells.length
+      const entropyBonus = entropyReward(state, result.cells.length, now)
+      const { cacheBonus, nextProgress } = miningRigReward(state, result.cells.length, state.ledgerMineOrder.length)
 
-      set({
+      const updates = {
         entropy: state.entropy + entropyBonus,
-        revealAnimations: [...state.revealAnimations, ...result.cells.map(c => ({ ...c, time: Date.now() }))],
-      })
+        cache: state.cache + cacheBonus,
+        miningRigProgress: nextProgress,
+        revealAnimations: [...state.revealAnimations, ...result.cells.map(c => ({ ...c, time: now }))],
+      }
 
-      // Update packet sniffer after first click
+      if ((state.subroutines.zero_day || 0) >= 1 && state.zeroDayClicksUsed < 3 && wasHidden) {
+        updates.zeroDayClicksUsed = state.zeroDayClicksUsed + 1
+      }
+
       if (state.showPacketSniffer && !engine.firstClick) {
         const rowCounts = []
         const colCounts = []
         for (let r = 0; r < engine.rows; r++) rowCounts.push(engine.getRowMineCount(r))
         for (let c = 0; c < engine.cols; c++) colCounts.push(engine.getColMineCount(c))
-        set({ rowMineCounts: rowCounts, colMineCounts: colCounts })
+        updates.rowMineCounts = rowCounts
+        updates.colMineCounts = colCounts
       }
 
-      // Check win
+      updates.engine = cloneEngine(engine)
+      set(updates)
+
       if (engine.won) {
         get().stopTimer()
         if (soundEnabled) sfx.playWin()
@@ -313,9 +628,6 @@ const store = create((set, get) => ({
       } else {
         saveGame(get())
       }
-
-      // Force re-render
-      set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
     }
   },
 
@@ -325,11 +637,95 @@ const store = create((set, get) => ({
     if (!engine || engine.gameOver) return
 
     const result = engine.toggleFlag(row, col)
-    if (result && soundEnabled) sfx.playFlag()
-    if (result) {
-      set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
+    if (!result) return
+    if (soundEnabled) sfx.playFlag()
+
+    const hasLedgerLink = (state.subroutines.ledger_link || 0) >= 1
+
+    if (!hasLedgerLink) {
+      set({
+        engine: cloneEngine(engine),
+        ledgerLinks: [],
+        ledgerMineOrder: [],
+        ledgerValidatedBlocks: 0,
+        ledgerPulse: null,
+      })
       saveGame(get())
+      return
     }
+
+    const now = Date.now()
+    let ledgerMineOrder = state.ledgerMineOrder
+    let ledgerValidatedBlocks = state.ledgerValidatedBlocks
+
+    if (result.flagged) {
+      const alreadyTracked = ledgerMineOrder.some(cell => cell.row === row && cell.col === col)
+      if (!alreadyTracked && !engine.firstClick && engine.isMine(row, col)) {
+        ledgerMineOrder = [...ledgerMineOrder, { row, col, flaggedAt: now }]
+      }
+    } else {
+      ledgerMineOrder = ledgerMineOrder.filter(cell => !(cell.row === row && cell.col === col))
+    }
+
+    const ledgerLinks = buildLedgerLinks(ledgerMineOrder)
+    let ledgerPulse = state.ledgerPulse
+    let ledgerRevealCells = []
+
+    if (!engine.firstClick) {
+      const completedBlocks = Math.floor(ledgerMineOrder.length / LEDGER_BLOCK_SIZE)
+      if (completedBlocks > ledgerValidatedBlocks) {
+        const blockStart = ledgerValidatedBlocks * LEDGER_BLOCK_SIZE
+        const blockMines = ledgerMineOrder.slice(blockStart, blockStart + LEDGER_BLOCK_SIZE)
+        ledgerRevealCells = revealLedgerBlockAdjacents(engine, blockMines)
+
+        const pulse = {
+          block: ledgerValidatedBlocks + 1,
+          mines: blockMines.map(cell => ({ row: cell.row, col: cell.col })),
+          time: now,
+        }
+        ledgerPulse = pulse
+        ledgerValidatedBlocks = completedBlocks
+
+        setTimeout(() => {
+          const activePulse = get().ledgerPulse
+          if (activePulse && activePulse.time === pulse.time) {
+            set({ ledgerPulse: null })
+          }
+        }, 750)
+      }
+    }
+
+    const updates = {
+      engine: cloneEngine(engine),
+      ledgerMineOrder,
+      ledgerLinks,
+      ledgerValidatedBlocks,
+      ledgerPulse,
+    }
+
+    if (ledgerRevealCells.length > 0) {
+      if (soundEnabled) {
+        ledgerRevealCells.slice(0, 6).forEach((_, i) => sfx.playCascade(i))
+      }
+
+      const entropyBonus = entropyReward(state, ledgerRevealCells.length, now)
+      const { cacheBonus, nextProgress } = miningRigReward(state, ledgerRevealCells.length, ledgerMineOrder.length)
+      updates.entropy = state.entropy + entropyBonus
+      updates.cache = state.cache + cacheBonus
+      updates.miningRigProgress = nextProgress
+      updates.revealAnimations = [...state.revealAnimations, ...ledgerRevealCells.map(cell => ({ ...cell, time: now }))]
+    }
+
+    set(updates)
+
+    if (engine.won) {
+      get().stopTimer()
+      if (soundEnabled) sfx.playWin()
+      get().completeNode()
+      return
+    }
+
+    saveGame(get())
   },
 
   chordReveal: (row, col) => {
@@ -337,32 +733,44 @@ const store = create((set, get) => ({
     const { engine, soundEnabled } = state
     if (!engine || engine.gameOver) return
 
+    const now = Date.now()
     const result = engine.chordReveal(row, col)
+
     if (result.hit) {
       if (soundEnabled) sfx.playExplosion()
       const newFirewalls = state.firewalls - 1
-      set({ firewalls: newFirewalls })
+      set({ firewalls: newFirewalls, engine: cloneEngine(engine) })
 
       if (newFirewalls <= 0) {
         get().stopTimer()
         engine.gameOver = true
-        engine.endTime = Date.now()
+        engine.endTime = now
         const allMines = engine.revealAllMines()
         set({
           phase: GAME_PHASE.GAME_OVER,
-          mineExplosions: allMines.map(m => ({ ...m, time: Date.now() })),
+          mineExplosions: allMines.map(m => ({ ...m, time: now })),
+          engine: cloneEngine(engine),
         })
         clearSave()
       } else {
         saveGame(get())
       }
-      set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
-    } else if (result.cells.length > 0) {
+      return
+    }
+
+    if (result.cells.length > 0) {
       if (soundEnabled) {
         result.cells.slice(0, 6).forEach((_, i) => sfx.playCascade(i))
       }
-      const entropyBonus = result.cells.length
-      set({ entropy: state.entropy + entropyBonus })
+
+      const entropyBonus = entropyReward(state, result.cells.length, now)
+      const { cacheBonus, nextProgress } = miningRigReward(state, result.cells.length, state.ledgerMineOrder.length)
+      set({
+        entropy: state.entropy + entropyBonus,
+        cache: state.cache + cacheBonus,
+        miningRigProgress: nextProgress,
+        engine: cloneEngine(engine),
+      })
 
       if (engine.won) {
         get().stopTimer()
@@ -371,7 +779,6 @@ const store = create((set, get) => ({
       } else {
         saveGame(get())
       }
-      set({ engine: Object.assign(Object.create(Object.getPrototypeOf(engine)), engine) })
     }
   },
 
@@ -380,8 +787,7 @@ const store = create((set, get) => ({
     const node = getNode(state.currentNodeId)
     const elapsed = state.engine.getElapsedTime()
 
-    // Calculate rewards
-    const parTime = node.rows * node.cols * 0.8 // ~0.8s per cell par
+    const parTime = node.rows * node.cols * 0.8
     const clockBonus = (state.kernelLevels.clock_speed || 0) * 30
     const effectivePar = parTime + clockBonus
     const underPar = elapsed < effectivePar
@@ -398,7 +804,6 @@ const store = create((set, get) => ({
 
     const entropyEarned = Math.floor(state.entropy * node.entropyMultiplier)
 
-    // Firewall reward: +1 firewall if completed without taking damage
     const perfectClear = state.firewalls === state.maxFirewalls
     const firewallBonus = perfectClear ? 1 : 0
     const newFirewalls = Math.min(state.firewalls + firewallBonus, state.maxFirewalls)
@@ -431,7 +836,7 @@ const store = create((set, get) => ({
     const state = get()
     const nextNode = getNextNode(state.currentNodeId)
     if (nextNode) {
-      set({ phase: GAME_PHASE.TERMINAL, entropy: 0 })
+      set({ phase: GAME_PHASE.TERMINAL, entropy: 0, deepScanResults: null, deepScanActive: false, sqlInjectActive: false })
       saveGame(get())
     } else {
       set({ phase: GAME_PHASE.WIN })
@@ -439,10 +844,17 @@ const store = create((set, get) => ({
     }
   },
 
-  purchaseUpgrade: (upgradeId) => {
+  purchaseUpgrade: (upgradeId, offeredCost = null) => {
     const state = get()
     const upgrade = UPGRADES[upgradeId]
-    if (!upgrade || state.cache < upgrade.cost) return false
+    if (!upgrade) return false
+
+    const safeCost = Number.isFinite(offeredCost)
+      ? Math.max(0, Math.min(upgrade.cost, Math.floor(offeredCost)))
+      : upgrade.cost
+
+    if (state.cache < safeCost) return false
+    if (upgrade.requiresRoot && !state.rootAccess) return false
 
     if (state.soundEnabled) sfx.playPurchase()
 
@@ -450,22 +862,21 @@ const store = create((set, get) => ({
       const currentLevel = state.subroutines[upgradeId] || 0
       if (currentLevel >= upgrade.maxLevel) return false
       set({
-        cache: state.cache - upgrade.cost,
+        cache: state.cache - safeCost,
         subroutines: { ...state.subroutines, [upgradeId]: currentLevel + 1 },
       })
     } else if (upgrade.type === UPGRADE_TYPE.EXPLOIT) {
       const currentCharges = state.exploits[upgradeId] || 0
       set({
-        cache: state.cache - upgrade.cost,
-        exploits: { ...state.exploits, [upgradeId]: currentCharges + upgrade.charges },
+        cache: state.cache - safeCost,
+        exploits: { ...state.exploits, [upgradeId]: currentCharges + (upgrade.charges || 1) },
       })
     } else if (upgrade.type === UPGRADE_TYPE.KERNEL) {
       const currentLevel = state.kernelLevels[upgradeId] || 0
       if (currentLevel >= upgrade.maxLevel) return false
 
-      // Apply kernel effects immediately
       const updates = {
-        cache: state.cache - upgrade.cost,
+        cache: state.cache - safeCost,
         kernelLevels: { ...state.kernelLevels, [upgradeId]: currentLevel + 1 },
       }
 
@@ -476,6 +887,7 @@ const store = create((set, get) => ({
 
       set(updates)
     }
+
     saveGame(get())
     return true
   },
@@ -494,7 +906,7 @@ const store = create((set, get) => ({
     const charges = state.exploits.deep_scan || 0
     if (charges <= 0) return
     if (state.soundEnabled) sfx.playDeepScan()
-    set({ deepScanActive: true })
+    set({ deepScanActive: true, sqlInjectActive: false })
   },
 
   useDeepScan: (row, col) => {
@@ -506,13 +918,51 @@ const store = create((set, get) => ({
     set({
       deepScanActive: false,
       deepScanResults: { cells: results, time: Date.now() },
-      exploits: { ...state.exploits, deep_scan: (state.exploits.deep_scan || 0) - 1 },
+      exploits: consumeExploit(state, 'deep_scan'),
     })
 
-    // Auto-clear results after 3 seconds
     setTimeout(() => {
       set({ deepScanResults: null })
     }, 3000)
+
+    saveGame(get())
+  },
+
+  activateSqlInject: () => {
+    const state = get()
+    const charges = state.exploits.sql_inject || 0
+    if (charges <= 0) return
+    if (state.soundEnabled) sfx.playClick()
+    set({ sqlInjectActive: true, deepScanActive: false })
+  },
+
+  useSqlInject: (row) => {
+    const state = get()
+    const { engine } = state
+    if (!engine || !state.sqlInjectActive) return
+
+    const cells = []
+    for (let c = 0; c < engine.cols; c++) {
+      cells.push({
+        row,
+        col: c,
+        value: engine.board[row][c],
+        isMine: engine.board[row][c] === -1,
+        state: engine.cellStates[row][c],
+      })
+    }
+
+    set({
+      sqlInjectActive: false,
+      deepScanResults: { cells, time: Date.now() },
+      exploits: consumeExploit(state, 'sql_inject'),
+    })
+
+    setTimeout(() => {
+      set({ deepScanResults: null })
+    }, 3000)
+
+    saveGame(get())
   },
 
   useBitShift: () => {
@@ -522,7 +972,6 @@ const store = create((set, get) => ({
     const charges = state.exploits.bit_shift || 0
     if (charges <= 0) return
 
-    // Find a random hidden non-mine cell
     const hidden = []
     for (let r = 0; r < engine.rows; r++) {
       for (let c = 0; c < engine.cols; c++) {
@@ -534,10 +983,9 @@ const store = create((set, get) => ({
     if (hidden.length === 0) return
 
     const [r, c] = hidden[Math.floor(Math.random() * hidden.length)]
-    set({
-      exploits: { ...state.exploits, bit_shift: charges - 1 },
-    })
+    set({ exploits: consumeExploit(state, 'bit_shift') })
     get().revealCell(r, c)
+    saveGame(get())
   },
 
   useDefrag: () => {
@@ -547,20 +995,202 @@ const store = create((set, get) => ({
     const charges = state.exploits.defrag || 0
     if (charges <= 0) return
 
-    // Find all hidden zero-value cells and reveal them
+    set({ exploits: consumeExploit(state, 'defrag') })
+
     for (let r = 0; r < engine.rows; r++) {
       for (let c = 0; c < engine.cols; c++) {
-        if (engine.cellStates[r][c] === CELL_STATE.HIDDEN && engine.board[r][c] === 0) {
-          // Only works after first click (mines placed)
-          if (!engine.firstClick) {
-            get().revealCell(r, c)
-          }
+        if (engine.cellStates[r][c] === CELL_STATE.HIDDEN && engine.board[r][c] === 0 && !engine.firstClick) {
+          get().revealCell(r, c)
         }
       }
     }
+
+    saveGame(get())
+  },
+
+  useOverclock: () => {
+    const state = get()
+    const charges = state.exploits.overclock || 0
+    if (charges <= 0) return
+
+    const until = Date.now() + 15000
     set({
-      exploits: { ...state.exploits, defrag: charges - 1 },
+      overclockUntil: until,
+      exploits: consumeExploit(state, 'overclock'),
     })
+    saveGame(get())
+  },
+
+  useSystemRestore: () => {
+    const state = get()
+    const charges = state.exploits.system_restore || 0
+    if (charges <= 0) return
+
+    set({
+      deepScanResults: null,
+      deepScanActive: false,
+      sqlInjectActive: false,
+      ledgerPulse: null,
+      exploits: consumeExploit(state, 'system_restore'),
+    })
+    saveGame(get())
+  },
+
+  useForkChain: () => {
+    const state = get()
+    const { engine, soundEnabled } = state
+    const charges = state.exploits.fork_chain || 0
+    if (!engine || engine.gameOver || charges <= 0) return
+
+    const now = Date.now()
+
+    let ledgerMineOrder = [...state.ledgerMineOrder]
+    const tracked = new Set(ledgerMineOrder.map(cell => makeCellKey(cell.row, cell.col)))
+    const flaggedMines = []
+
+    for (let r = 0; r < engine.rows; r++) {
+      for (let c = 0; c < engine.cols; c++) {
+        if (engine.cellStates[r][c] === CELL_STATE.FLAGGED && engine.isMine(r, c)) {
+          flaggedMines.push({ row: r, col: c })
+        }
+      }
+    }
+
+    for (const cell of flaggedMines) {
+      const key = makeCellKey(cell.row, cell.col)
+      if (!tracked.has(key)) {
+        ledgerMineOrder.push({ ...cell, flaggedAt: now })
+      }
+    }
+
+    ledgerMineOrder.sort((a, b) => a.flaggedAt - b.flaggedAt)
+
+    let ledgerValidatedBlocks = state.ledgerValidatedBlocks
+    const previousBlocks = ledgerValidatedBlocks
+    const targetBlocks = Math.floor(ledgerMineOrder.length / LEDGER_BLOCK_SIZE)
+    let revealedCells = []
+    const pulseMines = []
+
+    while (ledgerValidatedBlocks < targetBlocks) {
+      const start = ledgerValidatedBlocks * LEDGER_BLOCK_SIZE
+      const blockMines = ledgerMineOrder.slice(start, start + LEDGER_BLOCK_SIZE)
+      revealedCells = revealedCells.concat(revealLedgerBlockAdjacents(engine, blockMines))
+      pulseMines.push(...blockMines.map(cell => ({ row: cell.row, col: cell.col })))
+      ledgerValidatedBlocks++
+    }
+
+    const ledgerLinks = buildLedgerLinks(ledgerMineOrder)
+    const updates = {
+      exploits: consumeExploit(state, 'fork_chain'),
+      ledgerMineOrder,
+      ledgerLinks,
+      ledgerValidatedBlocks,
+      engine: cloneEngine(engine),
+    }
+
+    if (ledgerValidatedBlocks > previousBlocks) {
+      const pulse = {
+        block: ledgerValidatedBlocks,
+        mines: pulseMines,
+        time: now,
+      }
+      updates.ledgerPulse = pulse
+      setTimeout(() => {
+        const activePulse = get().ledgerPulse
+        if (activePulse && activePulse.time === pulse.time) {
+          set({ ledgerPulse: null })
+        }
+      }, 750)
+    }
+
+    if (revealedCells.length > 0) {
+      if (soundEnabled) {
+        revealedCells.slice(0, 8).forEach((_, i) => sfx.playCascade(i))
+      }
+      const entropyBonus = entropyReward(state, revealedCells.length, now)
+      const { cacheBonus, nextProgress } = miningRigReward(state, revealedCells.length, ledgerMineOrder.length)
+      updates.entropy = state.entropy + entropyBonus
+      updates.cache = state.cache + cacheBonus
+      updates.miningRigProgress = nextProgress
+      updates.revealAnimations = [...state.revealAnimations, ...revealedCells.map(cell => ({ ...cell, time: now }))]
+    }
+
+    set(updates)
+
+    if (engine.won) {
+      get().stopTimer()
+      if (soundEnabled) sfx.playWin()
+      get().completeNode()
+      return
+    }
+
+    saveGame(get())
+  },
+
+  useSignalJammer: () => {
+    const state = get()
+    const { engine } = state
+    const charges = state.exploits.signal_jammer || 0
+    if (!engine || charges <= 0) return
+
+    if (engine.startTime) {
+      engine.startTime += 30000
+    }
+
+    set({
+      exploits: consumeExploit(state, 'signal_jammer'),
+      elapsed: engine.getElapsedTime(),
+      engine: cloneEngine(engine),
+    })
+    saveGame(get())
+  },
+
+  useReboot: () => {
+    const state = get()
+    const { engine } = state
+    const charges = state.exploits.reboot || 0
+    if (!engine || engine.gameOver || engine.firstClick || charges <= 0) return
+
+    const hiddenCells = []
+    let hiddenMineCount = 0
+
+    for (let r = 0; r < engine.rows; r++) {
+      for (let c = 0; c < engine.cols; c++) {
+        if (engine.cellStates[r][c] !== CELL_STATE.HIDDEN) continue
+        hiddenCells.push([r, c])
+        if (engine.isMine(r, c)) hiddenMineCount++
+      }
+    }
+
+    if (hiddenCells.length <= hiddenMineCount) return
+
+    for (const [r, c] of hiddenCells) {
+      engine.mines.delete(makeCellKey(r, c))
+    }
+
+    const shuffled = shuffleInPlace([...hiddenCells])
+    for (let i = 0; i < hiddenMineCount; i++) {
+      const [r, c] = shuffled[i]
+      engine.mines.add(makeCellKey(r, c))
+    }
+
+    rebuildAdjacency(engine)
+
+    set({
+      exploits: consumeExploit(state, 'reboot'),
+      deepScanResults: null,
+      engine: cloneEngine(engine),
+    })
+    saveGame(get())
+  },
+
+  useDockerCompose: () => {
+    const state = get()
+    const charges = state.exploits.docker_compose || 0
+    if (charges <= 0) return
+
+    set({ exploits: consumeExploit(state, 'docker_compose') })
+    saveGame(get())
   },
 }))
 

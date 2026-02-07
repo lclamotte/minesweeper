@@ -7,7 +7,6 @@ export default function HUD() {
   const [showThemes, setShowThemes] = useState(false)
   const themeRef = useRef(null)
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!showThemes) return
     const handler = (e) => {
@@ -18,6 +17,7 @@ export default function HUD() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [showThemes])
+
   const currentNodeId = useGameStore(s => s.currentNodeId)
   const firewalls = useGameStore(s => s.firewalls)
   const maxFirewalls = useGameStore(s => s.maxFirewalls)
@@ -27,17 +27,33 @@ export default function HUD() {
   const engine = useGameStore(s => s.engine)
   const exploits = useGameStore(s => s.exploits)
   const activateDeepScan = useGameStore(s => s.activateDeepScan)
+  const activateSqlInject = useGameStore(s => s.activateSqlInject)
   const useBitShift = useGameStore(s => s.useBitShift)
   const useDefrag = useGameStore(s => s.useDefrag)
+  const useOverclock = useGameStore(s => s.useOverclock)
+  const useSystemRestore = useGameStore(s => s.useSystemRestore)
+  const useForkChain = useGameStore(s => s.useForkChain)
+  const useSignalJammer = useGameStore(s => s.useSignalJammer)
+  const useReboot = useGameStore(s => s.useReboot)
+  const useDockerCompose = useGameStore(s => s.useDockerCompose)
   const deepScanActive = useGameStore(s => s.deepScanActive)
+  const sqlInjectActive = useGameStore(s => s.sqlInjectActive)
+  const overclockUntil = useGameStore(s => s.overclockUntil)
   const soundEnabled = useGameStore(s => s.soundEnabled)
   const toggleSound = useGameStore(s => s.toggleSound)
   const currentTheme = useGameStore(s => s.currentTheme)
   const setTheme = useGameStore(s => s.setTheme)
+  const ledgerLevel = useGameStore(s => s.subroutines.ledger_link || 0)
+  const ledgerMineOrder = useGameStore(s => s.ledgerMineOrder)
+  const ledgerValidatedBlocks = useGameStore(s => s.ledgerValidatedBlocks)
 
   const node = getNode(currentNodeId)
   const completion = engine ? engine.getCompletionPercent() : 0
   const minesLeft = engine ? engine.mineCount - engine.flaggedCount : 0
+  const ledgerProgress = ledgerMineOrder.length % 5
+  const hasLedgerLink = ledgerLevel > 0
+  const hasExploits = Object.keys(exploits).length > 0
+  const overclockRemaining = Math.max(0, Math.ceil((overclockUntil - Date.now()) / 1000))
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60)
@@ -45,13 +61,22 @@ export default function HUD() {
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
   }
 
-  const hasExploits = Object.keys(exploits).length > 0
+  const exploitButtons = [
+    { id: 'deep_scan', label: 'SCAN', charges: exploits.deep_scan || 0, action: activateDeepScan, active: deepScanActive, title: 'Reveal mine info in a 3x3 area' },
+    { id: 'sql_inject', label: 'SQL', charges: exploits.sql_inject || 0, action: activateSqlInject, active: sqlInjectActive, title: 'Select a row to expose mines' },
+    { id: 'bit_shift', label: 'SHIFT', charges: exploits.bit_shift || 0, action: useBitShift, title: 'Reveal a random safe cell' },
+    { id: 'defrag', label: 'DEFRAG', charges: exploits.defrag || 0, action: useDefrag, title: 'Reveal hidden zero-value cells' },
+    { id: 'overclock', label: 'OC', charges: exploits.overclock || 0, action: useOverclock, title: '15s entropy overclock' },
+    { id: 'fork_chain', label: 'FORK', charges: exploits.fork_chain || 0, action: useForkChain, title: 'Mass-validate chain blocks' },
+    { id: 'signal_jammer', label: 'JAM', charges: exploits.signal_jammer || 0, action: useSignalJammer, title: 'Add 30s timer drift' },
+    { id: 'reboot', label: 'REBOOT', charges: exploits.reboot || 0, action: useReboot, title: 'Reshuffle hidden tiles' },
+    { id: 'system_restore', label: 'RESTORE', charges: exploits.system_restore || 0, action: useSystemRestore, title: 'Clear transient overlays' },
+    { id: 'docker_compose', label: 'DOCKER', charges: exploits.docker_compose || 0, action: useDockerCompose, title: 'Containerization stub' },
+  ].filter(btn => btn.charges > 0)
 
   return (
     <div className="w-full shrink-0 border-b border-[var(--crt-green-dim)] bg-[#0c0c0c]">
-      {/* Single compact row */}
       <div className="flex items-center justify-between px-4 py-2 gap-5 text-sm flex-wrap">
-        {/* Left: Node + Timer */}
         <div className="flex items-center gap-3">
           <span className="text-[var(--crt-green-dim)]">NODE</span>
           <span className="text-[var(--crt-green)] glow font-bold text-base">
@@ -63,11 +88,14 @@ export default function HUD() {
           <span className="text-[var(--crt-green)] glow font-bold text-base tabular-nums">
             {formatTime(elapsed)}
           </span>
+          {overclockRemaining > 0 && (
+            <span className="text-[var(--crt-red)] glow-red font-bold tabular-nums text-xs">
+              OC:{overclockRemaining}s
+            </span>
+          )}
         </div>
 
-        {/* Center: Stats */}
         <div className="flex items-center gap-5">
-          {/* Firewalls */}
           <div className="flex items-center gap-2">
             <span className="text-[var(--crt-green-dim)]">FW</span>
             <div className="flex gap-1">
@@ -84,7 +112,6 @@ export default function HUD() {
             </div>
           </div>
 
-          {/* Mines */}
           <div className="flex items-center gap-2">
             <span className="text-[var(--crt-green-dim)]">MINES</span>
             <span className={`font-bold text-base tabular-nums ${minesLeft <= 3 ? 'text-[var(--crt-amber)] glow-amber' : 'text-[var(--crt-red)] glow-red'}`}>
@@ -92,7 +119,6 @@ export default function HUD() {
             </span>
           </div>
 
-          {/* Completion */}
           <div className="flex items-center gap-2">
             <span className="text-[var(--crt-green-dim)]">SCAN</span>
             <div className="w-20 h-2.5 bg-[#111] border border-[var(--crt-green-dim)] overflow-hidden">
@@ -104,53 +130,46 @@ export default function HUD() {
             <span className="text-[var(--crt-green)] glow font-bold tabular-nums">{completion}%</span>
           </div>
 
-          {/* Cache */}
           <div className="flex items-center gap-2">
             <span className="text-[var(--crt-green-dim)]">CACHE</span>
             <span className="text-[var(--crt-amber)] glow-amber font-bold text-base tabular-nums">${cache}</span>
           </div>
 
-          {/* Entropy */}
           <div className="flex items-center gap-2">
             <span className="text-[var(--crt-green-dim)]">ENT</span>
             <span className="text-[var(--crt-cyan)] font-bold text-base tabular-nums">{entropy}</span>
           </div>
+
+          {hasLedgerLink && (
+            <div className="flex items-center gap-2">
+              <span className="text-[var(--crt-green-dim)]">LEDGER</span>
+              <span className="font-bold text-base tabular-nums text-[#39ff14] drop-shadow-[0_0_4px_rgba(57,255,20,0.65)]">
+                {ledgerProgress}/5
+              </span>
+              <span className="text-[var(--crt-green-dim)] text-xs">
+                B{ledgerValidatedBlocks}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Right: Exploits + Settings */}
-        <div className="flex items-center gap-2">
-          {hasExploits && (
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {hasExploits && exploitButtons.length > 0 && (
             <>
-              {(exploits.deep_scan || 0) > 0 && (
+              {exploitButtons.map(btn => (
                 <button
-                  onClick={activateDeepScan}
-                  className={`terminal-btn text-xs py-1 px-2.5 ${deepScanActive ? 'bg-[var(--crt-green)] text-black' : ''}`}
-                  title="Reveals mine info in a 3x3 area"
+                  key={btn.id}
+                  onClick={btn.action}
+                  className={`terminal-btn text-xs py-1 px-2 ${btn.active ? 'bg-[var(--crt-green)] text-black' : ''}`}
+                  title={btn.title}
                 >
-                  SCAN[{exploits.deep_scan}]
+                  {btn.label}[{btn.charges}]
                 </button>
-              )}
-              {(exploits.bit_shift || 0) > 0 && (
-                <button
-                  onClick={useBitShift}
-                  className="terminal-btn text-xs py-1 px-2.5"
-                  title="Reveals a random safe cell"
-                >
-                  SHIFT[{exploits.bit_shift}]
-                </button>
-              )}
-              {(exploits.defrag || 0) > 0 && (
-                <button
-                  onClick={useDefrag}
-                  className="terminal-btn text-xs py-1 px-2.5"
-                  title="Reveals all hidden zero-value cells"
-                >
-                  DEFRAG[{exploits.defrag}]
-                </button>
-              )}
+              ))}
               <span className="text-[var(--crt-green-dark)]">|</span>
             </>
           )}
+
           <div ref={themeRef} className="relative">
             <button
               onClick={() => setShowThemes(!showThemes)}
@@ -180,6 +199,7 @@ export default function HUD() {
               </div>
             )}
           </div>
+
           <button
             onClick={toggleSound}
             title="Toggle sound effects"

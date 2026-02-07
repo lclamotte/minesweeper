@@ -188,7 +188,7 @@ export default function CommandOverlay() {
   const [activeCommand, setActiveCommand] = useState(null)
   const inputRef = useRef(null)
 
-  const allowedPhases = [GAME_PHASE.GRID, GAME_PHASE.TERMINAL, GAME_PHASE.NODE_COMPLETE]
+  const allowedPhases = [GAME_PHASE.TERMINAL, GAME_PHASE.NODE_COMPLETE]
 
   // Filter commands based on input
   const filter = input.startsWith('/') ? input.slice(1).toLowerCase() : input.toLowerCase()
