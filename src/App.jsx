@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useGameStore, GAME_PHASE } from './store/gameStore'
 import BootSequence from './components/BootSequence'
 import TitleScreen from './components/TitleScreen'
@@ -10,6 +11,9 @@ import WinScreen from './components/WinScreen'
 
 export default function App() {
   const phase = useGameStore(s => s.phase)
+  const initTheme = useGameStore(s => s.initTheme)
+
+  useEffect(() => { initTheme() }, [initTheme])
 
   return (
     <div className="crt-screen crt-flicker">

@@ -115,6 +115,87 @@ export const UPGRADES = {
   },
 }
 
+// Small terminal-art icons for each upgrade (5 lines tall, monospace)
+export const UPGRADE_ART = {
+  heuristics: [
+    '┌───┐',
+    '│ ? │',
+    '│►1◄│',
+    '│ ? │',
+    '└───┘',
+  ],
+  crypto_nodes: [
+    ' ╔═╗ ',
+    '╔╝$╚╗',
+    '║ ₿ ║',
+    '╚╗$╔╝',
+    ' ╚═╝ ',
+  ],
+  packet_sniffer: [
+    '┌┬┬┬┐',
+    '├3 2┤',
+    '├ ▓ ┤',
+    '├1 4┤',
+    '└┴┴┴┘',
+  ],
+  entropy_harvester: [
+    '~~~~~',
+    '}{}{}',
+    '│ENT│',
+    '}{}{}',
+    '~~~~~',
+  ],
+  auto_flag: [
+    '  ▲  ',
+    ' ▲▲▲ ',
+    ' │█│ ',
+    '┌┤▓├┐',
+    '└───┘',
+  ],
+  deep_scan: [
+    '╭───╮',
+    '│ ◉ │',
+    '│/█\\│',
+    '│\\▓/│',
+    '╰───╯',
+  ],
+  bit_shift: [
+    '01010',
+    '10>>1',
+    '01001',
+    '1<<10',
+    '01010',
+  ],
+  defrag: [
+    '▓▒░▓▒',
+    '░▒▓░▓',
+    '█▓▒░█',
+    '░░░░░',
+    '█████',
+  ],
+  firewall_upgrade: [
+    '┃┃┃┃┃',
+    '┃█┃█┃',
+    '┃┃+┃┃',
+    '┃█┃█┃',
+    '┃┃┃┃┃',
+  ],
+  cache_boost: [
+    '╔$$$╗',
+    '║ ▲ ║',
+    '║▲▲▲║',
+    '║ ▲ ║',
+    '╚$$$╝',
+  ],
+  clock_speed: [
+    '╭───╮',
+    '│ ╱ │',
+    '│╱  │',
+    '│+30│',
+    '╰───╯',
+  ],
+}
+
 export function getShopItems() {
   return Object.values(UPGRADES)
 }

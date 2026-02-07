@@ -15,7 +15,7 @@ const BOOT_LINES = [
   { text: '', delay: 2100 },
   { text: '╔══════════════════════════════════════════╗', delay: 2200 },
   { text: '║                                          ║', delay: 2250 },
-  { text: '║          D A T A   M I N E S             ║', delay: 2300 },
+  { text: '║          R O O T S W E E P               ║', delay: 2300 },
   { text: '║          ═════════════════                ║', delay: 2350 },
   { text: '║                                          ║', delay: 2400 },
   { text: '║    >> ROOT ACCESS REQUIRED <<             ║', delay: 2500 },
@@ -67,7 +67,7 @@ export default function BootSequence() {
         {visibleLines.map((line, i) => (
           <div
             key={i}
-            className={`${line.includes('DATA') || line.includes('ROOT') ? 'text-[var(--crt-green)] glow-strong' : 'text-[var(--crt-green-dim)]'}`}
+            className={`${line.includes('ROOTSWEEP') || line.includes('ROOT ACCESS') ? 'text-[var(--crt-green)] glow-strong' : 'text-[var(--crt-green-dim)]'}`}
             style={{ animation: 'boot-text 0.1s ease-out' }}
           >
             {line || '\u00A0'}

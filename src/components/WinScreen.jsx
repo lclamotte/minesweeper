@@ -56,7 +56,7 @@ export default function WinScreen() {
             &gt; SYSTEM FULLY COMPROMISED
           </p>
           <p className="text-[var(--crt-green-dim)] text-[10px] mt-2">
-            ALL DATA MINES NEUTRALIZED. YOU HAVE ACHIEVED ROOT ACCESS.
+            ALL NODES BREACHED. YOU HAVE ACHIEVED ROOT ACCESS.
           </p>
         </div>
 

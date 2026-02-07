@@ -1,35 +1,11 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import { useGameStore, GAME_PHASE } from '../store/gameStore'
 import { CELL_STATE } from '../engine/MinesweeperEngine'
+import { getCanvasColors } from '../themes'
 
 const CELL_SIZE = 32
 const CELL_GAP = 1
 const HEADER_SIZE = 24 // for packet sniffer row/col labels
-const COLORS = {
-  bg: '#0a0a0a',
-  hidden: '#122a12',
-  hiddenBorder: '#00661f',
-  hiddenHover: '#1a3e1a',
-  revealed: '#0c0c0c',
-  revealedBorder: '#222222',
-  mine: '#ff3333',
-  flag: '#FFB000',
-  flagStroke: '#aa7500',
-  text: {
-    1: '#00aaff',
-    2: '#00ff41',
-    3: '#ff3333',
-    4: '#aa00ff',
-    5: '#ff6600',
-    6: '#00ffff',
-    7: '#ffffff',
-    8: '#888888',
-  },
-  scanOverlay: 'rgba(0, 255, 65, 0.15)',
-  scanMine: 'rgba(255, 51, 51, 0.6)',
-  scanSafe: 'rgba(0, 255, 65, 0.4)',
-  explosion: '#ff3333',
-}
 
 export default function GameGrid() {
   const canvasRef = useRef(null)
@@ -37,11 +13,13 @@ export default function GameGrid() {
   const [hoveredCell, setHoveredCell] = useState(null)
   const [canvasScale, setCanvasScale] = useState(1)
 
+  const currentTheme = useGameStore(s => s.currentTheme)
+  const COLORS = useMemo(() => getCanvasColors(currentTheme), [currentTheme])
+
   const engine = useGameStore(s => s.engine)
   const phase = useGameStore(s => s.phase)
   const revealCell = useGameStore(s => s.revealCell)
   const flagCell = useGameStore(s => s.flagCell)
-  const chordReveal = useGameStore(s => s.chordReveal)
   const deepScanActive = useGameStore(s => s.deepScanActive)
   const deepScanResults = useGameStore(s => s.deepScanResults)
   const useDeepScan = useGameStore(s => s.useDeepScan)
@@ -66,9 +44,9 @@ export default function GameGrid() {
     if (!containerRef.current || !engine) return
     const dims = getGridDimensions()
     const container = containerRef.current
-    const maxW = container.clientWidth - 32
-    const maxH = container.clientHeight - 32
-    const scale = Math.min(1, maxW / dims.width, maxH / dims.height)
+    const maxW = container.clientWidth * 0.92
+    const maxH = container.clientHeight * 0.92
+    const scale = Math.min(maxW / dims.width, maxH / dims.height)
     setCanvasScale(scale)
   }, [engine, getGridDimensions])
 
@@ -93,7 +71,7 @@ export default function GameGrid() {
     // Draw packet sniffer headers
     if (showPacketSniffer && rowMineCounts.length > 0) {
       ctx.font = '10px "Fira Code", monospace'
-      ctx.fillStyle = '#00ff4166'
+      ctx.fillStyle = COLORS.packetSnifferText
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
 
@@ -128,7 +106,7 @@ export default function GameGrid() {
           ctx.strokeRect(x + 0.5, y + 0.5, CELL_SIZE - 1, CELL_SIZE - 1)
 
           // Subtle grid dot
-          ctx.fillStyle = '#003b0f'
+          ctx.fillStyle = COLORS.hiddenDot
           ctx.fillRect(x + CELL_SIZE / 2 - 0.5, y + CELL_SIZE / 2 - 0.5, 1, 1)
 
         } else if (state === CELL_STATE.FLAGGED) {
@@ -183,7 +161,7 @@ export default function GameGrid() {
 
         if (cell.isMine) {
           ctx.font = 'bold 14px "Fira Code", monospace'
-          ctx.fillStyle = '#ff3333'
+          ctx.fillStyle = COLORS.mine
           ctx.textAlign = 'center'
           ctx.textBaseline = 'middle'
           ctx.fillText('!', x + CELL_SIZE / 2, y + CELL_SIZE / 2 + 1)
@@ -227,7 +205,7 @@ export default function GameGrid() {
       }
     }
 
-  }, [engine, hoveredCell, deepScanResults, deepScanActive, mineExplosions, showPacketSniffer, rowMineCounts, colMineCounts, getGridDimensions])
+  }, [engine, hoveredCell, deepScanResults, deepScanActive, mineExplosions, showPacketSniffer, rowMineCounts, colMineCounts, getGridDimensions, COLORS])
 
   // Mouse event handlers
   const getCellFromEvent = useCallback((e) => {
@@ -266,27 +244,14 @@ export default function GameGrid() {
       return
     }
 
-    const cellState = engine.getCellState(cell.row, cell.col)
-    if (cellState === CELL_STATE.REVEALED) {
-      chordReveal(cell.row, cell.col)
-    } else {
-      revealCell(cell.row, cell.col)
-    }
-  }, [getCellFromEvent, engine, revealCell, chordReveal, deepScanActive, useDeepScan])
+    revealCell(cell.row, cell.col)
+  }, [getCellFromEvent, revealCell, deepScanActive, useDeepScan])
 
   const handleContextMenu = useCallback((e) => {
     e.preventDefault()
     const cell = getCellFromEvent(e)
     if (cell) flagCell(cell.row, cell.col)
   }, [getCellFromEvent, flagCell])
-
-  const handleMiddleClick = useCallback((e) => {
-    if (e.button === 1) {
-      e.preventDefault()
-      const cell = getCellFromEvent(e)
-      if (cell) chordReveal(cell.row, cell.col)
-    }
-  }, [getCellFromEvent, chordReveal])
 
   if (!engine) return null
 
@@ -298,7 +263,7 @@ export default function GameGrid() {
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex items-center justify-center overflow-hidden min-h-0"
+      className="flex-1 flex flex-col items-center justify-center overflow-hidden min-h-0"
     >
       <div style={{ width: scaledWidth, height: scaledHeight, position: 'relative' }}>
         <canvas
@@ -318,8 +283,10 @@ export default function GameGrid() {
           onMouseLeave={handleMouseLeave}
           onClick={handleClick}
           onContextMenu={handleContextMenu}
-          onMouseDown={handleMiddleClick}
         />
+      </div>
+      <div className="text-[var(--crt-green-dark)] text-[10px] mt-3 tracking-wider select-none">
+        LEFT CLICK: REVEAL &nbsp;|&nbsp; RIGHT CLICK: FLAG
       </div>
     </div>
   )

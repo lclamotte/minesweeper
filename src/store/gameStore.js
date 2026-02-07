@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { MinesweeperEngine, CELL_STATE } from '../engine/MinesweeperEngine'
 import { getNode, getNextNode, NODES } from '../engine/nodes'
 import { UPGRADES, UPGRADE_TYPE } from '../engine/upgrades'
+import { applyTheme, THEMES } from '../themes'
 import * as sfx from '../audio/sounds'
 
 export const GAME_PHASE = {
@@ -38,6 +39,9 @@ const store = create((set, get) => ({
   // Engine reference
   engine: null,
 
+  // Theme
+  currentTheme: localStorage.getItem('datamines-theme') || 'phosphor',
+
   // UI state
   revealAnimations: [],
   mineExplosions: [],
@@ -55,6 +59,18 @@ const store = create((set, get) => ({
   setPhase: (phase) => set({ phase }),
 
   toggleSound: () => set(state => ({ soundEnabled: !state.soundEnabled })),
+
+  setTheme: (themeId) => {
+    if (!THEMES[themeId]) return
+    localStorage.setItem('datamines-theme', themeId)
+    applyTheme(themeId)
+    set({ currentTheme: themeId })
+  },
+
+  initTheme: () => {
+    const themeId = get().currentTheme
+    applyTheme(themeId)
+  },
 
   startNewRun: () => {
     set({
@@ -284,10 +300,12 @@ const store = create((set, get) => ({
 
     const nextNode = getNextNode(state.currentNodeId)
 
+    const totalEarned = cacheEarned + entropyEarned
+
     set({
       phase: GAME_PHASE.NODE_COMPLETE,
-      cache: state.cache + cacheEarned,
-      totalCacheEarned: state.totalCacheEarned + cacheEarned,
+      cache: state.cache + totalEarned,
+      totalCacheEarned: state.totalCacheEarned + totalEarned,
       firewalls: newFirewalls,
       nodeCompleteData: {
         nodeName: node.name,
