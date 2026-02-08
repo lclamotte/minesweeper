@@ -286,7 +286,7 @@ export function getSaveInfo() {
 
 const store = create((set, get) => ({
   // Game phase
-  phase: GAME_PHASE.BOOT,
+  phase: GAME_PHASE.TITLE,
 
   // Run state
   currentNodeId: 1,

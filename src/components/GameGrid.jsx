@@ -49,12 +49,22 @@ export default function GameGrid() {
 
   useEffect(() => {
     if (!containerRef.current || !engine) return
-    const dims = getGridDimensions()
     const container = containerRef.current
-    const maxW = container.clientWidth * 0.96
-    const maxH = container.clientHeight * 0.98
-    const scale = Math.min(maxW / dims.width, maxH / dims.height)
-    setCanvasScale(scale)
+    const dims = getGridDimensions()
+
+    const recalc = () => {
+      const maxW = container.clientWidth * 0.98
+      const maxH = container.clientHeight * 0.98
+      if (maxW > 0 && maxH > 0) {
+        setCanvasScale(Math.min(maxW / dims.width, maxH / dims.height))
+      }
+    }
+
+    recalc()
+
+    const ro = new ResizeObserver(recalc)
+    ro.observe(container)
+    return () => ro.disconnect()
   }, [engine, getGridDimensions])
 
   useEffect(() => {

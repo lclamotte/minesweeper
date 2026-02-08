@@ -233,7 +233,7 @@ export default function Terminal() {
               <button
                 key={cat.key}
                 onClick={() => setSelectedCategory(cat.key)}
-                className={`text-sm py-2 px-5 border font-bold tracking-wider transition-all ${
+                className={`text-lg md:text-xl py-2.5 px-6 border font-bold tracking-[0.25em] transition-all ${
                   isActive
                     ? 'bg-[var(--crt-green)] text-black border-[var(--crt-green)] shadow-[0_0_8px_var(--crt-green-glow)]'
                     : 'bg-transparent text-[var(--crt-green-dim)] border-[var(--crt-green-dark)] hover:border-[var(--crt-green-dim)] hover:text-[var(--crt-green)]'
@@ -252,10 +252,10 @@ export default function Terminal() {
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden py-4 px-3 md:px-5">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex items-center justify-center py-2 px-3 md:px-5">
         <div
-          className="w-full min-w-[980px] mx-auto grid gap-3 min-h-full"
-          style={{ gridTemplateColumns: `repeat(${Math.max(offers.length, 1)}, minmax(300px, 1fr))` }}
+          className="grid gap-3"
+          style={{ gridTemplateColumns: `repeat(${Math.max(offers.length, 1)}, minmax(200px, 250px))` }}
         >
           {offers.map((item, idx) => {
             const owned = getOwnedInfo(item)
@@ -269,8 +269,16 @@ export default function Terminal() {
             const displayName = redacted ? '████████████' : item.name
 
             return (
+              <div key={item.id} className="flex flex-col items-center">
+                {/* Price — above card */}
+                <div className="flex items-center justify-center gap-2 pb-1.5">
+                  {discounted && (
+                    <span className="text-[var(--crt-red)] text-xs tracking-wider line-through opacity-60">${item.cost}</span>
+                  )}
+                  <span className="text-[var(--crt-amber)] glow-amber font-bold text-lg tabular-nums">${price}</span>
+                </div>
+
               <div
-                key={item.id}
                 ref={(el) => { optionRefs.current[idx] = el }}
                 onMouseEnter={() => {
                   setSelectedOptionIdx(idx)
@@ -279,35 +287,69 @@ export default function Terminal() {
                 onMouseLeave={() => {
                   if (discounted) setRevealedDealId(null)
                 }}
-                onClick={() => handlePurchase(item)}
-                className={`w-full h-full border-2 transition-all cursor-pointer min-h-[430px] ${
+                onClick={() => setSelectedOptionIdx(idx)}
+                className={`w-full rounded-lg overflow-hidden transition-all cursor-pointer ${
                   isFlashing
-                    ? 'border-[var(--crt-amber)] bg-[var(--crt-amber-dark)]'
+                    ? 'shadow-[0_0_20px_var(--crt-amber),inset_0_0_30px_rgba(255,176,0,0.15)]'
                     : isSelected
-                      ? 'border-[var(--crt-green)] bg-[rgba(0,255,65,0.08)] shadow-[0_0_14px_var(--crt-green-glow)]'
+                      ? 'shadow-[0_0_18px_var(--crt-green-glow),inset_0_0_20px_rgba(0,255,65,0.06)]'
                       : discounted
-                        ? 'border-[var(--crt-red)] hover:border-[var(--crt-amber)]'
-                        : 'border-[var(--crt-green-dark)] hover:border-[var(--crt-green-dim)]'
+                        ? 'shadow-[0_0_10px_rgba(255,60,60,0.3)]'
+                        : ''
                 }`}
+                style={{
+                  border: `2px solid ${
+                    isFlashing ? 'var(--crt-amber)'
+                    : isSelected ? 'var(--crt-green)'
+                    : discounted ? 'var(--crt-red)'
+                    : 'var(--crt-green-dark)'
+                  }`,
+                  background: isFlashing
+                    ? 'linear-gradient(180deg, rgba(255,176,0,0.12) 0%, rgba(0,0,0,0.9) 100%)'
+                    : isSelected
+                      ? 'linear-gradient(180deg, rgba(0,255,65,0.08) 0%, rgba(0,0,0,0.92) 100%)'
+                      : 'linear-gradient(180deg, rgba(10,18,10,0.95) 0%, rgba(2,4,2,0.98) 100%)',
+                }}
               >
-                <div className="flex flex-col h-full p-4 md:p-5">
-                  <div className="flex items-start justify-between gap-3 flex-wrap shrink-0">
-                    <div className="text-[var(--crt-green)] font-bold text-xl md:text-2xl tracking-wide">
-                      {isSelected ? '▸ ' : ''}{displayName}
+                <div className="flex flex-col h-full">
+                  {/* Card header — type badge + owned */}
+                  <div className={`shrink-0 px-3 py-1.5 flex items-center justify-between border-b ${
+                    isFlashing ? 'border-[var(--crt-amber)] bg-[rgba(255,176,0,0.1)]'
+                    : discounted ? 'border-[var(--crt-red)] bg-[rgba(255,60,60,0.06)]'
+                    : 'border-[var(--crt-green-dark)] bg-[rgba(0,255,65,0.03)]'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[0.65rem] tracking-[0.3em] font-bold px-2 py-0.5 rounded-sm ${
+                        item.type === UPGRADE_TYPE.SUBROUTINE
+                          ? 'bg-[rgba(0,255,65,0.15)] text-[var(--crt-green)]'
+                          : item.type === UPGRADE_TYPE.EXPLOIT
+                            ? 'bg-[rgba(255,176,0,0.15)] text-[var(--crt-amber)]'
+                            : 'bg-[rgba(0,200,255,0.15)] text-[var(--crt-cyan)]'
+                      }`}>
+                        {item.type === UPGRADE_TYPE.SUBROUTINE ? 'SUB' : item.type === UPGRADE_TYPE.EXPLOIT ? 'EXP' : 'KRN'}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {discounted && (
-                        <span className="text-[var(--crt-red)] text-sm md:text-base tracking-wider">DEAL -50%</span>
-                      )}
-                      {owned && (
-                        <span className="text-[var(--crt-cyan)] text-sm md:text-base tracking-wider">{owned}</span>
-                      )}
-                    </div>
+                    {owned && (
+                      <span className="text-[var(--crt-cyan)] text-xs tracking-wider">{owned}</span>
+                    )}
                   </div>
 
+                  {/* Card title */}
+                  <div className="shrink-0 px-3 pt-2 pb-1">
+                    <div className={`font-bold text-base md:text-lg tracking-wide leading-tight ${
+                      discounted ? 'text-[var(--crt-red)]' : 'text-[var(--crt-green)]'
+                    }`}>
+                      {displayName}
+                    </div>
+                    {discounted && !redacted && (
+                      <span className="text-[var(--crt-red)] text-xs tracking-[0.2em]">DARK-POOL DEAL -50%</span>
+                    )}
+                  </div>
+
+                  {/* Card art — center illustration */}
                   {art && (
-                    <div className="flex-1 flex items-center justify-center border border-[var(--crt-green-dark)] bg-[rgba(0,0,0,0.25)] px-4 py-5 mt-3 mb-3 min-h-[250px]">
-                      <pre className={`text-[clamp(1.9rem,5.2vh,3.5rem)] leading-[1.02] select-none font-mono text-center transition-colors ${
+                    <div className="flex items-center justify-center mx-2 my-1 py-8 rounded border border-[var(--crt-green-dark)] bg-[rgba(0,0,0,0.35)]">
+                      <pre className={`text-[clamp(1.8rem,5.5vh,3.4rem)] leading-[1.02] select-none font-mono text-center transition-colors ${
                         isFlashing
                           ? 'text-[var(--crt-amber)] glow-amber'
                           : discounted
@@ -319,40 +361,42 @@ export default function Terminal() {
                     </div>
                   )}
 
-                  <div className="shrink-0 mt-auto pt-2 border-t border-[var(--crt-green-dark)]">
-                    <p className="text-[var(--crt-green-dim)] text-sm md:text-base leading-snug mb-2">
+                  {/* Compile button — below art */}
+                  <div className="shrink-0 px-2 py-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handlePurchase(item)
+                      }}
+                      disabled={!canBuy}
+                      className={`terminal-btn w-full text-xs md:text-sm py-2 tracking-[0.2em] ${canBuy ? 'terminal-btn-amber' : ''}`}
+                    >
+                      {!rootAccess && item.requiresRoot
+                        ? '[ ROOT LOCK ]'
+                        : !canBuy && cache < price
+                          ? '[ INSUFFICIENT ]'
+                          : !canBuy
+                            ? '[ MAXED ]'
+                            : '[ COMPILE ]'}
+                    </button>
+                  </div>
+
+                  {/* Card footer — description */}
+                  <div className={`shrink-0 mt-auto px-3 py-2 border-t ${
+                    isFlashing ? 'border-[var(--crt-amber)]' : 'border-[var(--crt-green-dark)]'
+                  }`}>
+                    <p className="text-[var(--crt-green-dim)] text-xs md:text-sm leading-snug">
                       {item.description}
                     </p>
-
-                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                      <div className="text-[var(--crt-amber)] glow-amber font-bold text-2xl tabular-nums">
-                        ${price}
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handlePurchase(item)
-                        }}
-                        disabled={!canBuy}
-                        className={`terminal-btn text-sm md:text-base py-2 px-5 ${canBuy ? 'terminal-btn-amber' : ''}`}
-                      >
-                        {!rootAccess && item.requiresRoot
-                          ? 'ROOT LOCK'
-                          : !canBuy && cache < price
-                            ? 'INSUFFICIENT'
-                            : !canBuy
-                              ? 'MAXED'
-                              : 'COMPILE'}
-                      </button>
-                    </div>
                   </div>
                 </div>
+              </div>
               </div>
             )
           })}
 
           {offers.length === 0 && (
-            <div className="h-full min-h-[240px] col-span-full flex items-center justify-center text-[var(--crt-green-dark)] text-lg border border-[var(--crt-green-dark)]">
+            <div className="min-h-[120px] col-span-full flex items-center justify-center text-[var(--crt-green-dark)] text-lg border border-[var(--crt-green-dark)]">
               No binaries available in this channel.
             </div>
           )}
