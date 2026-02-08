@@ -9,6 +9,9 @@ export const CELL_STATE = {
   FLAGGED: 2,
 }
 
+const NO_GUESS_MAX_COMPONENT_SIZE = 22
+const NO_GUESS_MAX_SOLUTIONS = 50000
+
 export class MinesweeperEngine {
   constructor(rows, cols, mineCount) {
     this.rows = rows
@@ -32,47 +35,470 @@ export class MinesweeperEngine {
     this.cellStates = Array.from({ length: this.rows }, () => Array(this.cols).fill(CELL_STATE.HIDDEN))
   }
 
-  _placeMines(safeRow, safeCol) {
+  _cellKey(row, col) {
+    return `${row},${col}`
+  }
+
+  _cellId(row, col) {
+    return row * this.cols + col
+  }
+
+  _idToRowCol(id) {
+    return {
+      row: Math.floor(id / this.cols),
+      col: id % this.cols,
+    }
+  }
+
+  _forEachNeighbor(row, col, cb) {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue
+        const nr = row + dr
+        const nc = col + dc
+        if (nr >= 0 && nr < this.rows && nc >= 0 && nc < this.cols) {
+          cb(nr, nc)
+        }
+      }
+    }
+  }
+
+  _clearMineLayout() {
     this.mines.clear()
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        this.board[r][c] = 0
+      }
+    }
+  }
+
+  _rebuildAdjacency() {
+    for (const key of this.mines) {
+      const [r, c] = key.split(',').map(Number)
+      this.board[r][c] = -1
+    }
+
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        if (this.board[r][c] === -1) continue
+        let count = 0
+        this._forEachNeighbor(r, c, (nr, nc) => {
+          if (this.board[nr][nc] === -1) count++
+        })
+        this.board[r][c] = count
+      }
+    }
+  }
+
+  _collectConstraints(simState) {
+    const constraints = []
+
+    for (let r = 0; r < this.rows; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        if (simState[r][c] !== CELL_STATE.REVEALED) continue
+        const value = this.board[r][c]
+        if (value <= 0) continue
+
+        const hidden = []
+        let flagged = 0
+
+        this._forEachNeighbor(r, c, (nr, nc) => {
+          const state = simState[nr][nc]
+          if (state === CELL_STATE.HIDDEN) {
+            hidden.push(this._cellId(nr, nc))
+          } else if (state === CELL_STATE.FLAGGED) {
+            flagged++
+          }
+        })
+
+        if (hidden.length === 0) continue
+
+        const minesLeft = value - flagged
+        if (minesLeft < 0 || minesLeft > hidden.length) {
+          return { invalid: true, constraints: [] }
+        }
+
+        const hiddenSet = new Set(hidden)
+        constraints.push({ hidden, hiddenSet, minesLeft })
+      }
+    }
+
+    return { invalid: false, constraints }
+  }
+
+  _enumerateComponent(componentVars, componentConstraints) {
+    const localIdxById = new Map()
+    componentVars.forEach((id, idx) => localIdxById.set(id, idx))
+
+    const normalizedConstraints = componentConstraints.map((constraint) => ({
+      vars: constraint.hidden
+        .filter(id => localIdxById.has(id))
+        .map(id => localIdxById.get(id)),
+      minesLeft: constraint.minesLeft,
+    }))
+
+    const varToConstraints = Array.from({ length: componentVars.length }, () => [])
+    normalizedConstraints.forEach((constraint, ci) => {
+      for (const varIdx of constraint.vars) {
+        varToConstraints[varIdx].push(ci)
+      }
+    })
+
+    const order = [...Array(componentVars.length).keys()].sort((a, b) => {
+      return varToConstraints[b].length - varToConstraints[a].length
+    })
+
+    const assignedMines = Array(normalizedConstraints.length).fill(0)
+    const assignedCells = Array(normalizedConstraints.length).fill(0)
+    const assignment = Array(componentVars.length).fill(-1)
+    const mineHits = Array(componentVars.length).fill(0)
+    let solutionCount = 0
+    let truncated = false
+
+    const dfs = (depth) => {
+      if (truncated) return
+
+      if (depth === order.length) {
+        for (let ci = 0; ci < normalizedConstraints.length; ci++) {
+          if (assignedMines[ci] !== normalizedConstraints[ci].minesLeft) return
+        }
+
+        solutionCount++
+        for (let i = 0; i < assignment.length; i++) {
+          if (assignment[i] === 1) mineHits[i]++
+        }
+
+        if (solutionCount > NO_GUESS_MAX_SOLUTIONS) {
+          truncated = true
+        }
+        return
+      }
+
+      const varIdx = order[depth]
+      const related = varToConstraints[varIdx]
+
+      for (const value of [0, 1]) {
+        let valid = true
+        for (const ci of related) {
+          const nextMines = assignedMines[ci] + value
+          const nextAssigned = assignedCells[ci] + 1
+          const remaining = normalizedConstraints[ci].vars.length - nextAssigned
+          const target = normalizedConstraints[ci].minesLeft
+          if (nextMines > target || nextMines + remaining < target) {
+            valid = false
+            break
+          }
+        }
+        if (!valid) continue
+
+        assignment[varIdx] = value
+        for (const ci of related) {
+          assignedMines[ci] += value
+          assignedCells[ci]++
+        }
+
+        dfs(depth + 1)
+
+        for (const ci of related) {
+          assignedMines[ci] -= value
+          assignedCells[ci]--
+        }
+        assignment[varIdx] = -1
+
+        if (truncated) return
+      }
+    }
+
+    dfs(0)
+    return { solutionCount, mineHits, truncated }
+  }
+
+  _buildConnectedComponents(constraints) {
+    const varToConstraints = new Map()
+    constraints.forEach((constraint, ci) => {
+      for (const id of constraint.hidden) {
+        if (!varToConstraints.has(id)) varToConstraints.set(id, [])
+        varToConstraints.get(id).push(ci)
+      }
+    })
+
+    const visited = new Set()
+    const components = []
+
+    for (const startId of varToConstraints.keys()) {
+      if (visited.has(startId)) continue
+
+      const queue = [startId]
+      const vars = []
+      const constraintSet = new Set()
+
+      while (queue.length > 0) {
+        const currentId = queue.pop()
+        if (visited.has(currentId)) continue
+        visited.add(currentId)
+        vars.push(currentId)
+
+        const related = varToConstraints.get(currentId) || []
+        for (const ci of related) {
+          if (constraintSet.has(ci)) continue
+          constraintSet.add(ci)
+
+          for (const nextId of constraints[ci].hidden) {
+            if (!visited.has(nextId)) queue.push(nextId)
+          }
+        }
+      }
+
+      components.push({
+        vars,
+        constraints: [...constraintSet].map(ci => constraints[ci]),
+      })
+    }
+
+    return components
+  }
+
+  _solveNoGuessFromFirstClick(startRow, startCol) {
+    const simState = Array.from({ length: this.rows }, () => Array(this.cols).fill(CELL_STATE.HIDDEN))
+    let revealedSafe = 0
+    let flaggedMines = 0
+    const safeTarget = this.rows * this.cols - this.mineCount
+
+    const revealSafeCell = (row, col) => {
+      if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) return true
+      if (simState[row][col] !== CELL_STATE.HIDDEN) return true
+      if (this.board[row][col] === -1) return false
+
+      const stack = [[row, col]]
+      while (stack.length > 0) {
+        const [r, c] = stack.pop()
+        if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) continue
+        if (simState[r][c] !== CELL_STATE.HIDDEN) continue
+        if (this.board[r][c] === -1) return false
+
+        simState[r][c] = CELL_STATE.REVEALED
+        revealedSafe++
+
+        if (this.board[r][c] === 0) {
+          this._forEachNeighbor(r, c, (nr, nc) => {
+            if (simState[nr][nc] === CELL_STATE.HIDDEN) {
+              stack.push([nr, nc])
+            }
+          })
+        }
+      }
+      return true
+    }
+
+    const flagMineCell = (row, col) => {
+      if (simState[row][col] !== CELL_STATE.HIDDEN) return true
+      if (this.board[row][col] !== -1) return false
+      simState[row][col] = CELL_STATE.FLAGGED
+      flaggedMines++
+      return true
+    }
+
+    if (!revealSafeCell(startRow, startCol)) return false
+
+    while (revealedSafe < safeTarget) {
+      let madeProgress = false
+
+      const toReveal = new Set()
+      const toFlag = new Set()
+
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) {
+          if (simState[r][c] !== CELL_STATE.REVEALED) continue
+          const value = this.board[r][c]
+          if (value <= 0) continue
+
+          const hidden = []
+          let flagged = 0
+
+          this._forEachNeighbor(r, c, (nr, nc) => {
+            if (simState[nr][nc] === CELL_STATE.HIDDEN) {
+              hidden.push(this._cellId(nr, nc))
+            } else if (simState[nr][nc] === CELL_STATE.FLAGGED) {
+              flagged++
+            }
+          })
+
+          if (hidden.length === 0) continue
+
+          const remaining = value - flagged
+          if (remaining < 0 || remaining > hidden.length) {
+            return false
+          }
+
+          if (remaining === 0) {
+            hidden.forEach(id => toReveal.add(id))
+          } else if (remaining === hidden.length) {
+            hidden.forEach(id => toFlag.add(id))
+          }
+        }
+      }
+
+      if (toReveal.size > 0 || toFlag.size > 0) {
+        madeProgress = true
+        for (const id of toFlag) {
+          const { row, col } = this._idToRowCol(id)
+          if (!flagMineCell(row, col)) return false
+        }
+        for (const id of toReveal) {
+          const { row, col } = this._idToRowCol(id)
+          if (!revealSafeCell(row, col)) return false
+        }
+        continue
+      }
+
+      const { invalid, constraints } = this._collectConstraints(simState)
+      if (invalid) return false
+
+      if (constraints.length > 1) {
+        const subsetReveal = new Set()
+        const subsetFlag = new Set()
+
+        const isSubset = (a, b) => {
+          if (a.hidden.length > b.hidden.length) return false
+          for (const id of a.hidden) {
+            if (!b.hiddenSet.has(id)) return false
+          }
+          return true
+        }
+
+        const applySubset = (a, b) => {
+          if (!isSubset(a, b)) return
+          const diff = b.hidden.filter(id => !a.hiddenSet.has(id))
+          if (diff.length === 0) return
+          const mineDiff = b.minesLeft - a.minesLeft
+          if (mineDiff < 0 || mineDiff > diff.length) return
+          if (mineDiff === 0) {
+            diff.forEach(id => subsetReveal.add(id))
+          } else if (mineDiff === diff.length) {
+            diff.forEach(id => subsetFlag.add(id))
+          }
+        }
+
+        for (let i = 0; i < constraints.length; i++) {
+          for (let j = i + 1; j < constraints.length; j++) {
+            applySubset(constraints[i], constraints[j])
+            applySubset(constraints[j], constraints[i])
+          }
+        }
+
+        if (subsetReveal.size > 0 || subsetFlag.size > 0) {
+          madeProgress = true
+          for (const id of subsetFlag) {
+            const { row, col } = this._idToRowCol(id)
+            if (!flagMineCell(row, col)) return false
+          }
+          for (const id of subsetReveal) {
+            const { row, col } = this._idToRowCol(id)
+            if (!revealSafeCell(row, col)) return false
+          }
+          continue
+        }
+      }
+
+      if (constraints.length > 0) {
+        const exactReveal = new Set()
+        const exactFlag = new Set()
+        const components = this._buildConnectedComponents(constraints)
+
+        for (const component of components) {
+          if (component.vars.length === 0) continue
+          if (component.vars.length > NO_GUESS_MAX_COMPONENT_SIZE) continue
+
+          const result = this._enumerateComponent(component.vars, component.constraints)
+          if (result.solutionCount === 0) return false
+          if (result.truncated) continue
+
+          for (let i = 0; i < component.vars.length; i++) {
+            if (result.mineHits[i] === 0) {
+              exactReveal.add(component.vars[i])
+            } else if (result.mineHits[i] === result.solutionCount) {
+              exactFlag.add(component.vars[i])
+            }
+          }
+        }
+
+        if (exactReveal.size > 0 || exactFlag.size > 0) {
+          madeProgress = true
+          for (const id of exactFlag) {
+            const { row, col } = this._idToRowCol(id)
+            if (!flagMineCell(row, col)) return false
+          }
+          for (const id of exactReveal) {
+            const { row, col } = this._idToRowCol(id)
+            if (!revealSafeCell(row, col)) return false
+          }
+        }
+      }
+
+      if (madeProgress) continue
+
+      const hidden = []
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) {
+          if (simState[r][c] === CELL_STATE.HIDDEN) hidden.push(this._cellId(r, c))
+        }
+      }
+
+      const remainingMines = this.mineCount - flaggedMines
+      if (remainingMines < 0 || remainingMines > hidden.length) return false
+
+      if (remainingMines === 0) {
+        for (const id of hidden) {
+          const { row, col } = this._idToRowCol(id)
+          if (!revealSafeCell(row, col)) return false
+        }
+        continue
+      }
+
+      if (remainingMines === hidden.length) {
+        for (const id of hidden) {
+          const { row, col } = this._idToRowCol(id)
+          if (!flagMineCell(row, col)) return false
+        }
+        continue
+      }
+
+      return false
+    }
+
+    return true
+  }
+
+  _placeMines(safeRow, safeCol) {
     const safeCells = new Set()
     for (let dr = -1; dr <= 1; dr++) {
       for (let dc = -1; dc <= 1; dc++) {
         const r = safeRow + dr
         const c = safeCol + dc
         if (r >= 0 && r < this.rows && c >= 0 && c < this.cols) {
-          safeCells.add(`${r},${c}`)
+          safeCells.add(this._cellKey(r, c))
         }
       }
     }
 
-    let placed = 0
-    while (placed < this.mineCount) {
-      const r = Math.floor(Math.random() * this.rows)
-      const c = Math.floor(Math.random() * this.cols)
-      const key = `${r},${c}`
-      if (!this.mines.has(key) && !safeCells.has(key)) {
-        this.mines.add(key)
-        this.board[r][c] = -1
-        placed++
-      }
-    }
+    // Generate until the board is fully solvable from the first click without any guess.
+    while (true) {
+      this._clearMineLayout()
 
-    // Calculate adjacency numbers
-    for (let r = 0; r < this.rows; r++) {
-      for (let c = 0; c < this.cols; c++) {
-        if (this.board[r][c] === -1) continue
-        let count = 0
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            if (dr === 0 && dc === 0) continue
-            const nr = r + dr
-            const nc = c + dc
-            if (nr >= 0 && nr < this.rows && nc >= 0 && nc < this.cols && this.board[nr][nc] === -1) {
-              count++
-            }
-          }
+      let placed = 0
+      while (placed < this.mineCount) {
+        const r = Math.floor(Math.random() * this.rows)
+        const c = Math.floor(Math.random() * this.cols)
+        const key = this._cellKey(r, c)
+        if (!this.mines.has(key) && !safeCells.has(key)) {
+          this.mines.add(key)
+          placed++
         }
-        this.board[r][c] = count
+      }
+
+      this._rebuildAdjacency()
+      if (this._solveNoGuessFromFirstClick(safeRow, safeCol)) {
+        return
       }
     }
   }

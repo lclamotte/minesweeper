@@ -3,7 +3,7 @@ export const THEMES = {
     name: 'PHOSPHOR',
     // CSS variables
     primary: '#00FF41',
-    primaryDim: '#00aa2a',
+    primaryDim: '#29d854',
     primaryDark: '#003b0f',
     primaryGlow: '#00ff4180',
     accent: '#FFB000',
@@ -37,7 +37,7 @@ export const THEMES = {
   amber: {
     name: 'AMBER',
     primary: '#FFB000',
-    primaryDim: '#aa7500',
+    primaryDim: '#d89b29',
     primaryDark: '#3b2800',
     primaryGlow: '#FFB00080',
     accent: '#FF6600',
@@ -70,7 +70,7 @@ export const THEMES = {
   monokai: {
     name: 'MONOKAI',
     primary: '#F8F8F2',
-    primaryDim: '#a0a090',
+    primaryDim: '#c4c4b7',
     primaryDark: '#3e3d32',
     primaryGlow: '#F8F8F280',
     accent: '#A6E22E',
@@ -103,7 +103,7 @@ export const THEMES = {
   solarized: {
     name: 'SOLARIZED',
     primary: '#859900',
-    primaryDim: '#586e75',
+    primaryDim: '#7f9399',
     primaryDark: '#073642',
     primaryGlow: '#85990080',
     accent: '#b58900',
@@ -136,7 +136,7 @@ export const THEMES = {
   cyberpunk: {
     name: 'CYBERPUNK',
     primary: '#FF00FF',
-    primaryDim: '#aa00aa',
+    primaryDim: '#d34bd3',
     primaryDark: '#3b003b',
     primaryGlow: '#FF00FF80',
     accent: '#00FFFF',

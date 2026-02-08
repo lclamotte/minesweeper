@@ -1,65 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { THEMES } from '../themes'
 import GameGrid from './GameGrid'
+import HUD from './HUD'
 
 const MAX_LOG_LINES = 80
-
-function ReadonlyStatusTerminal() {
-  const exploits = useGameStore(s => s.exploits)
-  const subroutines = useGameStore(s => s.subroutines)
-
-  const exploitLines = useMemo(
-    () => Object.entries(exploits).filter(([, charges]) => charges > 0).slice(0, 6),
-    [exploits]
-  )
-  const subroutineLines = useMemo(
-    () => Object.entries(subroutines).filter(([, lvl]) => lvl > 0).slice(0, 4),
-    [subroutines]
-  )
-
-  return (
-    <aside className="hidden lg:flex absolute left-2 top-1/2 -translate-y-1/2 z-30 w-48 xl:w-52 border border-[var(--crt-green-dark)] bg-[#060a06e6] backdrop-blur-[1px] shadow-[0_0_18px_rgba(0,255,65,0.2)] flex-col overflow-hidden">
-      <div className="px-2 py-1.5 border-b border-[var(--crt-green-dark)] text-[var(--crt-green)] font-bold tracking-widest text-[0.65rem]">
-        STATUS // READONLY
-      </div>
-
-      <div className="overflow-y-auto p-2 space-y-2 text-sm">
-        <div>
-          <div className="text-[var(--crt-green-dim)] text-[0.65rem] mb-0.5">ACTIVE EXPLOITS</div>
-          {exploitLines.length > 0 ? (
-            <div className="space-y-0.5 text-[0.72rem]">
-              {exploitLines.map(([id, charges]) => (
-                <div key={id} className="flex items-center justify-between gap-2">
-                  <span className="text-[var(--crt-green)] truncate">{id.toUpperCase()}</span>
-                  <span className="text-[var(--crt-amber)] tabular-nums">x{charges}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-[var(--crt-green-dark)] text-[0.72rem]">none loaded</div>
-          )}
-        </div>
-
-        <div className="border-t border-[var(--crt-green-dark)] pt-2">
-          <div className="text-[var(--crt-green-dim)] text-[0.65rem] mb-0.5">SUBROUTINES</div>
-          {subroutineLines.length > 0 ? (
-            <div className="space-y-0.5 text-[0.72rem]">
-              {subroutineLines.map(([id, lvl]) => (
-                <div key={id} className="flex items-center justify-between gap-2">
-                  <span className="text-[var(--crt-green)] truncate">{id.toUpperCase()}</span>
-                  <span className="text-[var(--crt-cyan)] tabular-nums">L{lvl}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-[var(--crt-green-dark)] text-[0.72rem]">none compiled</div>
-          )}
-        </div>
-      </div>
-    </aside>
-  )
-}
+const SHOW_GRID_COMMAND_TERMINAL = false
 
 function CommandsTerminal() {
   const abandonRun = useGameStore(s => s.abandonRun)
@@ -73,7 +19,7 @@ function CommandsTerminal() {
   const maxFirewalls = useGameStore(s => s.maxFirewalls)
   const engine = useGameStore(s => s.engine)
 
-  const [input, setInput] = useState('/')
+  const [input, setInput] = useState('')
   const [log, setLog] = useState([
     { type: 'sys', text: 'GRID COMMAND TERMINAL READY' },
     { type: 'sys', text: 'TYPE /help FOR COMMANDS' },
@@ -94,12 +40,16 @@ function CommandsTerminal() {
     const onSlashFocus = (e) => {
       if (e.key !== '/') return
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (document.activeElement === inputRef.current) {
+        e.preventDefault()
+        return
+      }
+
       const tag = (e.target?.tagName || '').toLowerCase()
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return
 
       e.preventDefault()
       inputRef.current?.focus()
-      setInput('/')
     }
 
     window.addEventListener('keydown', onSlashFocus)
@@ -107,17 +57,11 @@ function CommandsTerminal() {
   }, [])
 
   const runCommand = (raw) => {
-    const cmdline = raw.trim()
+    const cmdline = raw.trim().replace(/^\/+/, '')
     if (!cmdline) return
 
     appendLog('in', `> ${cmdline}`)
-
-    if (!cmdline.startsWith('/')) {
-      appendLog('err', 'Commands must start with /')
-      return
-    }
-
-    const [cmdRaw, ...args] = cmdline.replace(/^\/+/, '').split(/\s+/)
+    const [cmdRaw, ...args] = cmdline.split(/\s+/)
     const cmd = (cmdRaw || '').toLowerCase()
 
     if (cmd === 'help') {
@@ -182,11 +126,11 @@ function CommandsTerminal() {
   const handleSubmit = (e) => {
     e.preventDefault()
     runCommand(input)
-    setInput('/')
+    setInput('')
   }
 
   return (
-    <aside className="hidden lg:flex absolute right-2 top-1/2 -translate-y-1/2 z-30 w-56 xl:w-64 max-h-[60vh] border border-[var(--crt-green-dark)] bg-[#060a06e6] backdrop-blur-[1px] shadow-[0_0_18px_rgba(0,255,65,0.2)] flex-col overflow-hidden">
+    <aside className="hidden lg:flex absolute right-2 bottom-2 z-30 w-56 xl:w-64 max-h-[54vh] border border-[var(--crt-green-dark)] bg-[#060a06e6] backdrop-blur-[1px] shadow-[0_0_18px_rgba(0,255,65,0.2)] flex-col overflow-hidden">
       <div className="px-2 py-1.5 border-b border-[var(--crt-green-dark)] text-[var(--crt-green)] font-bold tracking-widest text-[0.65rem]">
         CMD // INTERACTIVE
       </div>
@@ -221,7 +165,12 @@ function CommandsTerminal() {
           <input
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === '/') {
+                e.preventDefault()
+              }
+            }}
+            onChange={(e) => setInput(e.target.value.replaceAll('/', ''))}
             className="flex-1 bg-transparent text-[var(--crt-green)] text-[0.7rem] outline-none font-mono"
             spellCheck={false}
             autoComplete="off"
@@ -236,11 +185,11 @@ export default function GridWorkspace() {
   return (
     <div className="flex-1 min-h-0 p-1.5 overflow-hidden">
       <div className="relative h-full w-full">
-        <ReadonlyStatusTerminal />
-        <div className="h-full w-full min-w-0 min-h-0 flex flex-col border border-[var(--crt-green-dark)] bg-[#050805]">
+        <div className="relative h-full w-full min-w-0 min-h-0 flex flex-col border border-[var(--crt-green-dark)] bg-[#050805]">
           <GameGrid />
+          <HUD />
         </div>
-        <CommandsTerminal />
+        {SHOW_GRID_COMMAND_TERMINAL && <CommandsTerminal />}
       </div>
     </div>
   )

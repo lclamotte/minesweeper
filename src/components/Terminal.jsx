@@ -5,6 +5,9 @@ import { getNextNode } from '../engine/nodes'
 import { playClick } from '../audio/sounds'
 import { SignalWave, NetworkMap } from './AsciiAnim'
 
+const OFFERS_PER_CATEGORY = 3
+const TERMINAL_RELOAD_COST = 45
+
 function hashString(value) {
   let hash = 2166136261
   for (let i = 0; i < value.length; i++) {
@@ -14,11 +17,77 @@ function hashString(value) {
   return Math.abs(hash >>> 0)
 }
 
+function pickRandomDistinct(items, count) {
+  const shuffled = [...items]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = shuffled[i]
+    shuffled[i] = shuffled[j]
+    shuffled[j] = tmp
+  }
+  return shuffled.slice(0, Math.min(count, shuffled.length))
+}
+
+function buildCombinations(items, size) {
+  const combos = []
+  const stack = []
+
+  const dfs = (startIdx) => {
+    if (stack.length === size) {
+      combos.push([...stack])
+      return
+    }
+
+    const remaining = size - stack.length
+    for (let i = startIdx; i <= items.length - remaining; i++) {
+      stack.push(items[i])
+      dfs(i + 1)
+      stack.pop()
+    }
+  }
+
+  dfs(0)
+  return combos
+}
+
+function getOfferCategory(item) {
+  return item.type === UPGRADE_TYPE.EXPLOIT ? 'exploit' : 'daemon'
+}
+
+function pickOfferSet(pool, previousOfferIds = [], count = OFFERS_PER_CATEGORY) {
+  const target = Math.min(count, pool.length)
+  if (target <= 0) return []
+  if (target === pool.length) return pickRandomDistinct(pool, target)
+
+  const previousSet = new Set(previousOfferIds)
+  const combos = buildCombinations(pool, target)
+
+  let bestScore = Number.POSITIVE_INFINITY
+  const bestCombos = []
+
+  for (const combo of combos) {
+    const overlap = combo.reduce((acc, item) => acc + (previousSet.has(item.id) ? 1 : 0), 0)
+    const score = overlap
+
+    if (score < bestScore) {
+      bestScore = score
+      bestCombos.length = 0
+      bestCombos.push(combo)
+    } else if (score === bestScore) {
+      bestCombos.push(combo)
+    }
+  }
+
+  if (bestCombos.length === 0) return pickRandomDistinct(pool, target)
+  return bestCombos[Math.floor(Math.random() * bestCombos.length)]
+}
+
 export default function Terminal() {
-  const [selectedCategory, setSelectedCategory] = useState('subroutine')
+  const [selectedCategory, setSelectedCategory] = useState('daemon')
   const [selectedOptionIdx, setSelectedOptionIdx] = useState(0)
   const [purchaseFlash, setPurchaseFlash] = useState(null)
   const [revealedDealId, setRevealedDealId] = useState(null)
+  const [offerIdsByCategory, setOfferIdsByCategory] = useState({ daemon: [], exploit: [] })
   const optionRefs = useRef([])
 
   const cache = useGameStore(s => s.cache)
@@ -27,6 +96,7 @@ export default function Terminal() {
   const kernelLevels = useGameStore(s => s.kernelLevels)
   const rootAccess = useGameStore(s => s.rootAccess)
   const purchaseUpgrade = useGameStore(s => s.purchaseUpgrade)
+  const purchaseTerminalReload = useGameStore(s => s.purchaseTerminalReload)
   const proceedToNextNode = useGameStore(s => s.proceedToNextNode)
   const currentNodeId = useGameStore(s => s.currentNodeId)
   const firewalls = useGameStore(s => s.firewalls)
@@ -38,55 +108,111 @@ export default function Terminal() {
 
   const categories = [
     {
-      key: 'subroutine',
-      label: 'SUBROUTINES',
-      desc: 'Passive upgrades that enhance scanning capabilities. Effects persist across all nodes.',
-      filter: (item) => item.type === UPGRADE_TYPE.SUBROUTINE,
+      key: 'daemon',
+      label: 'DAEMONS',
+      desc: 'Passive upgrades that persist across nodes.',
     },
     {
       key: 'exploit',
       label: 'EXPLOITS',
-      desc: 'Single-use tools deployed during a scan. Consumed on activation.',
-      filter: (item) => item.type === UPGRADE_TYPE.EXPLOIT,
-    },
-    {
-      key: 'kernel',
-      label: 'KERNEL',
-      desc: 'Core system optimizations for baseline survivability and rewards.',
-      filter: (item) => item.type === UPGRADE_TYPE.KERNEL && !item.requiresRoot,
-    },
-    {
-      key: 'restricted',
-      label: '[SUDO]',
-      desc: 'Root-gated upgrades. High privilege, high impact.',
-      filter: (item) => item.type === UPGRADE_TYPE.KERNEL && item.requiresRoot,
+      desc: 'Active tools consumed on use while clearing the current node.',
     },
   ]
 
   const selectedCategoryIndex = Math.max(0, categories.findIndex(cat => cat.key === selectedCategory))
   const activeCategory = categories[selectedCategoryIndex]
 
-  const allCategoryItems = useMemo(() => getShopItems().filter(item => activeCategory.filter(item)), [activeCategory])
+  const daemonOfferPool = useMemo(
+    () => getShopItems().filter(item =>
+      item.type === UPGRADE_TYPE.SUBROUTINE ||
+      item.type === UPGRADE_TYPE.KERNEL
+    ),
+    []
+  )
+  const exploitOfferPool = useMemo(
+    () => getShopItems().filter(item => item.type === UPGRADE_TYPE.EXPLOIT),
+    []
+  )
 
-  const offerCount = hasDarkPool ? 4 : 3
-  const offers = useMemo(() => {
-    const seed = `${currentNodeId}-${selectedCategory}`
-    const sorted = [...allCategoryItems].sort((a, b) => {
-      const scoreA = hashString(`${seed}-${a.id}`)
-      const scoreB = hashString(`${seed}-${b.id}`)
-      return scoreA - scoreB
+  const daemonOfferById = useMemo(
+    () => new Map(daemonOfferPool.map(item => [item.id, item])),
+    [daemonOfferPool]
+  )
+  const exploitOfferById = useMemo(
+    () => new Map(exploitOfferPool.map(item => [item.id, item])),
+    [exploitOfferPool]
+  )
+
+  const daemonOffers = useMemo(
+    () => offerIdsByCategory.daemon.map(id => daemonOfferById.get(id)).filter(Boolean),
+    [offerIdsByCategory.daemon, daemonOfferById]
+  )
+  const exploitOffers = useMemo(
+    () => offerIdsByCategory.exploit.map(id => exploitOfferById.get(id)).filter(Boolean),
+    [offerIdsByCategory.exploit, exploitOfferById]
+  )
+
+  const visibleOffers = useMemo(
+    () => selectedCategory === 'daemon' ? daemonOffers : exploitOffers,
+    [selectedCategory, daemonOffers, exploitOffers]
+  )
+
+  const discountedIds = useMemo(() => {
+    if (!hasDarkPool) {
+      return { daemon: null, exploit: null }
+    }
+
+    const pickDiscount = (items, ids, key) => {
+      if (items.length === 0) return null
+      const seed = `discount-${currentNodeId}-${key}-${ids.join('|')}`
+      const idx = hashString(seed) % items.length
+      return items[idx].id
+    }
+
+    return {
+      daemon: pickDiscount(daemonOffers, offerIdsByCategory.daemon, 'daemon'),
+      exploit: pickDiscount(exploitOffers, offerIdsByCategory.exploit, 'exploit'),
+    }
+  }, [hasDarkPool, currentNodeId, daemonOffers, exploitOffers, offerIdsByCategory.daemon, offerIdsByCategory.exploit])
+
+  const canReload = cache >= TERMINAL_RELOAD_COST && (
+    daemonOfferPool.length > 1 || exploitOfferPool.length > 1
+  )
+
+  useEffect(() => {
+    setOfferIdsByCategory({
+      daemon: pickOfferSet(daemonOfferPool, [], OFFERS_PER_CATEGORY).map(item => item.id),
+      exploit: pickOfferSet(exploitOfferPool, [], OFFERS_PER_CATEGORY).map(item => item.id),
     })
-    return sorted.slice(0, Math.min(offerCount, sorted.length))
-  }, [allCategoryItems, currentNodeId, selectedCategory, offerCount])
+    setSelectedOptionIdx(0)
+    setRevealedDealId(null)
+    optionRefs.current = []
+  }, [daemonOfferPool, exploitOfferPool, currentNodeId])
 
-  const discountedId = useMemo(() => {
-    if (!hasDarkPool || offers.length === 0) return null
-    const idx = hashString(`discount-${currentNodeId}-${selectedCategory}`) % offers.length
-    return offers[idx].id
-  }, [hasDarkPool, offers, currentNodeId, selectedCategory])
+  useEffect(() => {
+    setSelectedOptionIdx(0)
+    setRevealedDealId(null)
+    optionRefs.current = []
+  }, [selectedCategory])
+
+  useEffect(() => {
+    if (visibleOffers.length === 0) {
+      setSelectedOptionIdx(0)
+      return
+    }
+    if (selectedOptionIdx >= visibleOffers.length) {
+      setSelectedOptionIdx(visibleOffers.length - 1)
+    }
+  }, [visibleOffers.length, selectedOptionIdx])
+
+  useEffect(() => {
+    const active = optionRefs.current[selectedOptionIdx]
+    if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedOptionIdx, visibleOffers])
 
   const getPrice = (item) => {
-    if (item.id === discountedId) return Math.max(1, Math.floor(item.cost * 0.5))
+    const category = getOfferCategory(item)
+    if (item.id === discountedIds[category]) return Math.max(1, Math.floor(item.cost * 0.5))
     return item.cost
   }
 
@@ -130,31 +256,40 @@ export default function Terminal() {
     }
   }
 
+  const handleReloadOffers = () => {
+    if (!canReload) return
+    const success = purchaseTerminalReload(TERMINAL_RELOAD_COST)
+    if (!success) return
+    if (soundEnabled) playClick()
+
+    const rerollIds = (pool, prevIds) => {
+      let next = pickOfferSet(pool, prevIds, OFFERS_PER_CATEGORY)
+      let attempts = 0
+      const prevSorted = [...prevIds].sort().join('|')
+      while (attempts < 5) {
+        const nextSorted = next.map(item => item.id).sort().join('|')
+        if (nextSorted !== prevSorted) break
+        next = pickOfferSet(pool, prevIds, OFFERS_PER_CATEGORY)
+        attempts++
+      }
+      return next.map(item => item.id)
+    }
+
+    setOfferIdsByCategory((prev) => {
+      return {
+        daemon: rerollIds(daemonOfferPool, prev.daemon),
+        exploit: rerollIds(exploitOfferPool, prev.exploit),
+      }
+    })
+    setSelectedOptionIdx(0)
+    setRevealedDealId(null)
+    optionRefs.current = []
+  }
+
   const handleProceed = () => {
     if (soundEnabled) playClick()
     proceedToNextNode()
   }
-
-  useEffect(() => {
-    setSelectedOptionIdx(0)
-    setRevealedDealId(null)
-    optionRefs.current = []
-  }, [selectedCategory])
-
-  useEffect(() => {
-    if (offers.length === 0) {
-      setSelectedOptionIdx(0)
-      return
-    }
-    if (selectedOptionIdx >= offers.length) {
-      setSelectedOptionIdx(offers.length - 1)
-    }
-  }, [offers.length, selectedOptionIdx])
-
-  useEffect(() => {
-    const active = optionRefs.current[selectedOptionIdx]
-    if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [selectedOptionIdx, offers])
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -183,20 +318,26 @@ export default function Terminal() {
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSelectedOptionIdx(idx => Math.min(Math.max(0, offers.length - 1), idx + 1))
+        setSelectedOptionIdx(idx => Math.min(Math.max(0, visibleOffers.length - 1), idx + 1))
+        return
+      }
+
+      if ((e.key === 'r' || e.key === 'R') && canReload) {
+        e.preventDefault()
+        handleReloadOffers()
         return
       }
 
       if (e.key === 'Enter') {
-        if (offers.length === 0) return
+        if (visibleOffers.length === 0) return
         e.preventDefault()
-        handlePurchase(offers[selectedOptionIdx])
+        handlePurchase(visibleOffers[selectedOptionIdx])
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [categories, selectedCategoryIndex, offers, selectedOptionIdx, soundEnabled, cache, subroutines, exploits, kernelLevels, rootAccess])
+  }, [categories, selectedCategoryIndex, visibleOffers, selectedOptionIdx, canReload, soundEnabled, cache, subroutines, exploits, kernelLevels, rootAccess])
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
@@ -244,25 +385,23 @@ export default function Terminal() {
             )
           })}
         </div>
+
         <p className="text-center text-[var(--crt-green-dim)] text-base md:text-lg leading-relaxed mt-3 px-6">
           {activeCategory.desc}
-        </p>
-        <p className="text-center text-sm mt-1 text-[var(--crt-green-dark)] tracking-wide">
-          OFFERS: {offers.length}/{offerCount} {hasDarkPool ? '// DARK-POOL ACTIVE' : ''} // NAV: ← → CATEGORY, ↑ ↓ SELECT, ENTER COMPILE
         </p>
       </div>
 
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex items-center justify-center py-2 px-3 md:px-5">
         <div
           className="grid gap-3"
-          style={{ gridTemplateColumns: `repeat(${Math.max(offers.length, 1)}, minmax(200px, 250px))` }}
+          style={{ gridTemplateColumns: `repeat(${Math.max(visibleOffers.length, 1)}, minmax(200px, 250px))` }}
         >
-          {offers.map((item, idx) => {
+          {visibleOffers.map((item, idx) => {
             const owned = getOwnedInfo(item)
             const canBuy = canPurchase(item)
             const isFlashing = purchaseFlash === item.id
             const art = UPGRADE_ART[item.id]
-            const discounted = item.id === discountedId
+            const discounted = item.id === discountedIds[getOfferCategory(item)]
             const price = getPrice(item)
             const isSelected = idx === selectedOptionIdx
             const redacted = discounted && revealedDealId !== item.id && !isSelected
@@ -270,7 +409,6 @@ export default function Terminal() {
 
             return (
               <div key={item.id} className="flex flex-col items-center">
-                {/* Price — above card */}
                 <div className="flex items-center justify-center gap-2 pb-1.5">
                   {discounted && (
                     <span className="text-[var(--crt-red)] text-xs tracking-wider line-through opacity-60">${item.cost}</span>
@@ -278,126 +416,114 @@ export default function Terminal() {
                   <span className="text-[var(--crt-amber)] glow-amber font-bold text-lg tabular-nums">${price}</span>
                 </div>
 
-              <div
-                ref={(el) => { optionRefs.current[idx] = el }}
-                onMouseEnter={() => {
-                  setSelectedOptionIdx(idx)
-                  if (discounted) setRevealedDealId(item.id)
-                }}
-                onMouseLeave={() => {
-                  if (discounted) setRevealedDealId(null)
-                }}
-                onClick={() => setSelectedOptionIdx(idx)}
-                className={`w-full rounded-lg overflow-hidden transition-all cursor-pointer ${
-                  isFlashing
-                    ? 'shadow-[0_0_20px_var(--crt-amber),inset_0_0_30px_rgba(255,176,0,0.15)]'
-                    : isSelected
-                      ? 'shadow-[0_0_18px_var(--crt-green-glow),inset_0_0_20px_rgba(0,255,65,0.06)]'
+                <div
+                  ref={(el) => { optionRefs.current[idx] = el }}
+                  onMouseEnter={() => {
+                    setSelectedOptionIdx(idx)
+                    if (discounted) setRevealedDealId(item.id)
+                  }}
+                  onMouseLeave={() => {
+                    if (discounted) setRevealedDealId(null)
+                  }}
+                  onClick={() => setSelectedOptionIdx(idx)}
+                  className={`w-full rounded-lg overflow-hidden transition-all cursor-pointer ${
+                    isFlashing
+                      ? 'shadow-[0_0_20px_var(--crt-amber),inset_0_0_30px_rgba(255,176,0,0.15)]'
                       : discounted
-                        ? 'shadow-[0_0_10px_rgba(255,60,60,0.3)]'
-                        : ''
-                }`}
-                style={{
-                  border: `2px solid ${
-                    isFlashing ? 'var(--crt-amber)'
-                    : isSelected ? 'var(--crt-green)'
-                    : discounted ? 'var(--crt-red)'
-                    : 'var(--crt-green-dark)'
-                  }`,
-                  background: isFlashing
-                    ? 'linear-gradient(180deg, rgba(255,176,0,0.12) 0%, rgba(0,0,0,0.9) 100%)'
-                    : isSelected
-                      ? 'linear-gradient(180deg, rgba(0,255,65,0.08) 0%, rgba(0,0,0,0.92) 100%)'
+                          ? 'shadow-[0_0_10px_rgba(255,60,60,0.3)]'
+                          : ''
+                  }`}
+                  style={{
+                    border: `2px solid ${
+                      isFlashing ? 'var(--crt-amber)'
+                        : discounted ? 'var(--crt-red)'
+                          : 'var(--crt-green-dark)'
+                    }`,
+                    background: isFlashing
+                      ? 'linear-gradient(180deg, rgba(255,176,0,0.12) 0%, rgba(0,0,0,0.9) 100%)'
                       : 'linear-gradient(180deg, rgba(10,18,10,0.95) 0%, rgba(2,4,2,0.98) 100%)',
-                }}
-              >
-                <div className="flex flex-col h-full">
-                  {/* Card header — type badge + owned */}
-                  <div className={`shrink-0 px-3 py-1.5 flex items-center justify-between border-b ${
-                    isFlashing ? 'border-[var(--crt-amber)] bg-[rgba(255,176,0,0.1)]'
-                    : discounted ? 'border-[var(--crt-red)] bg-[rgba(255,60,60,0.06)]'
-                    : 'border-[var(--crt-green-dark)] bg-[rgba(0,255,65,0.03)]'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[0.65rem] tracking-[0.3em] font-bold px-2 py-0.5 rounded-sm ${
-                        item.type === UPGRADE_TYPE.SUBROUTINE
-                          ? 'bg-[rgba(0,255,65,0.15)] text-[var(--crt-green)]'
-                          : item.type === UPGRADE_TYPE.EXPLOIT
-                            ? 'bg-[rgba(255,176,0,0.15)] text-[var(--crt-amber)]'
-                            : 'bg-[rgba(0,200,255,0.15)] text-[var(--crt-cyan)]'
-                      }`}>
-                        {item.type === UPGRADE_TYPE.SUBROUTINE ? 'SUB' : item.type === UPGRADE_TYPE.EXPLOIT ? 'EXP' : 'KRN'}
-                      </span>
-                    </div>
-                    {owned && (
-                      <span className="text-[var(--crt-cyan)] text-xs tracking-wider">{owned}</span>
-                    )}
-                  </div>
-
-                  {/* Card title */}
-                  <div className="shrink-0 px-3 pt-2 pb-1">
-                    <div className={`font-bold text-base md:text-lg tracking-wide leading-tight ${
-                      discounted ? 'text-[var(--crt-red)]' : 'text-[var(--crt-green)]'
+                  }}
+                >
+                  <div className="flex flex-col h-full">
+                    <div className={`shrink-0 px-3 py-1.5 flex items-center justify-between border-b ${
+                      isFlashing ? 'border-[var(--crt-amber)] bg-[rgba(255,176,0,0.1)]'
+                        : discounted ? 'border-[var(--crt-red)] bg-[rgba(255,60,60,0.06)]'
+                          : 'border-[var(--crt-green-dark)] bg-[rgba(0,255,65,0.03)]'
                     }`}>
-                      {displayName}
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[0.65rem] tracking-[0.3em] font-bold px-2 py-0.5 rounded-sm ${
+                          item.type === UPGRADE_TYPE.EXPLOIT
+                            ? 'bg-[rgba(255,176,0,0.15)] text-[var(--crt-amber)]'
+                            : 'bg-[rgba(0,255,65,0.15)] text-[var(--crt-green)]'
+                        }`}>
+                          {item.type === UPGRADE_TYPE.EXPLOIT ? 'EXP' : 'DMN'}
+                        </span>
+                      </div>
+                      {owned && (
+                        <span className="text-[var(--crt-cyan)] text-xs tracking-wider">{owned}</span>
+                      )}
                     </div>
-                    {discounted && !redacted && (
-                      <span className="text-[var(--crt-red)] text-xs tracking-[0.2em]">DARK-POOL DEAL -50%</span>
-                    )}
-                  </div>
 
-                  {/* Card art — center illustration */}
-                  {art && (
-                    <div className="flex items-center justify-center mx-2 my-1 py-8 rounded border border-[var(--crt-green-dark)] bg-[rgba(0,0,0,0.35)]">
-                      <pre className={`text-[clamp(1.8rem,5.5vh,3.4rem)] leading-[1.02] select-none font-mono text-center transition-colors ${
-                        isFlashing
-                          ? 'text-[var(--crt-amber)] glow-amber'
-                          : discounted
-                            ? 'text-[var(--crt-red)] glow-red'
-                            : 'text-[var(--crt-green)] glow'
+                    <div className="shrink-0 px-3 pt-2 pb-1">
+                      <div className={`font-bold text-base md:text-lg tracking-wide leading-tight ${
+                        discounted ? 'text-[var(--crt-red)]' : 'text-[var(--crt-green)]'
                       }`}>
-                        {art.join('\n')}
-                      </pre>
+                        {displayName}
+                      </div>
+                      {discounted && !redacted && (
+                        <span className="text-[var(--crt-red)] text-xs tracking-[0.2em]">DARK-POOL DEAL -50%</span>
+                      )}
                     </div>
-                  )}
 
-                  {/* Compile button — below art */}
-                  <div className="shrink-0 px-2 py-1.5">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handlePurchase(item)
-                      }}
-                      disabled={!canBuy}
-                      className={`terminal-btn w-full text-xs md:text-sm py-2 tracking-[0.2em] ${canBuy ? 'terminal-btn-amber' : ''}`}
-                    >
-                      {!rootAccess && item.requiresRoot
-                        ? '[ ROOT LOCK ]'
-                        : !canBuy && cache < price
-                          ? '[ INSUFFICIENT ]'
-                          : !canBuy
-                            ? '[ MAXED ]'
-                            : '[ COMPILE ]'}
-                    </button>
-                  </div>
+                    {art && (
+                      <div className="flex items-center justify-center mx-2 my-1 py-8 rounded border border-[var(--crt-green-dark)] bg-[rgba(0,0,0,0.35)]">
+                        <pre className={`text-[clamp(1.8rem,5.5vh,3.4rem)] leading-[1.02] select-none font-mono text-center transition-colors ${
+                          isFlashing
+                            ? 'text-[var(--crt-amber)] glow-amber'
+                            : discounted
+                              ? 'text-[var(--crt-red)] glow-red'
+                              : 'text-[var(--crt-green)] glow'
+                        }`}>
+                          {art.join('\n')}
+                        </pre>
+                      </div>
+                    )}
 
-                  {/* Card footer — description */}
-                  <div className={`shrink-0 mt-auto px-3 py-2 border-t ${
-                    isFlashing ? 'border-[var(--crt-amber)]' : 'border-[var(--crt-green-dark)]'
-                  }`}>
-                    <p className="text-[var(--crt-green-dim)] text-xs md:text-sm leading-snug">
-                      {item.description}
-                    </p>
+                    <div className="shrink-0 px-2 py-1.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handlePurchase(item)
+                        }}
+                        disabled={!canBuy}
+                        className={`terminal-btn w-full text-xs md:text-sm py-2 tracking-[0.2em] ${canBuy ? 'terminal-btn-amber' : ''}`}
+                      >
+                        {!rootAccess && item.requiresRoot
+                          ? '[ ROOT LOCK ]'
+                          : !canBuy && cache < price
+                            ? '[ INSUFFICIENT ]'
+                            : !canBuy
+                              ? '[ MAXED ]'
+                              : '[ COMPILE ]'}
+                      </button>
+                    </div>
+
+                    <div className={`shrink-0 mt-auto px-3 py-2 border-t ${
+                      isFlashing ? 'border-[var(--crt-amber)]' : 'border-[var(--crt-green-dark)]'
+                    }`}>
+                      <p className="text-[var(--crt-green-dim)] text-xs md:text-sm leading-snug">
+                        {item.description}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
               </div>
             )
           })}
 
-          {offers.length === 0 && (
-            <div className="min-h-[120px] col-span-full flex items-center justify-center text-[var(--crt-green-dark)] text-lg border border-[var(--crt-green-dark)]">
-              No binaries available in this channel.
+          {visibleOffers.length === 0 && (
+            <div className="min-h-[120px] col-span-full flex items-center justify-center text-[var(--crt-green-dark)] text-lg border border-[var(--crt-green-dark)] px-4 text-center">
+              No offers in this tab. Switch tabs or reload the terminal catalog.
             </div>
           )}
         </div>
@@ -407,15 +533,25 @@ export default function Terminal() {
         <div className="flex justify-center py-1">
           <SignalWave width={60} speed={100} className="text-[0.6rem] text-[var(--crt-green-dark)] opacity-50" />
         </div>
-        <div className="px-5 py-3 flex items-center justify-between">
+        <div className="px-5 py-3 flex items-center justify-between gap-3">
           <div className="text-sm text-[var(--crt-green-dim)]">
             {nextNode && (
               <span>NEXT: {nextNode.name} // {nextNode.rows}x{nextNode.cols} // {nextNode.mines} MINES</span>
             )}
           </div>
-          <button onClick={handleProceed} className="terminal-btn text-sm px-8 py-2.5">
-            [ INJECT &gt;&gt; NODE {currentNodeId + 1} ]
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReloadOffers}
+              disabled={!canReload}
+              className="terminal-btn text-sm px-5 py-2.5 terminal-btn-amber disabled:opacity-40"
+              title={`Reroll all offers for $${TERMINAL_RELOAD_COST}`}
+            >
+              [ RELOAD -${TERMINAL_RELOAD_COST} ]
+            </button>
+            <button onClick={handleProceed} className="terminal-btn text-sm px-8 py-2.5">
+              [ PROCEED &gt;&gt; NODE {currentNodeId + 1} ]
+            </button>
+          </div>
         </div>
       </div>
     </div>

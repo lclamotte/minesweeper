@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 import { useGameStore, GAME_PHASE } from './store/gameStore'
 import BootSequence from './components/BootSequence'
 import TitleScreen from './components/TitleScreen'
-import HUD from './components/HUD'
 import NodeComplete from './components/NodeComplete'
+import NodeIntro from './components/NodeIntro'
 import Terminal from './components/Terminal'
 import GridWorkspace from './components/GridWorkspace'
 import GameOver from './components/GameOver'
@@ -22,12 +22,8 @@ export default function App() {
       <div className="w-full h-full flex flex-col relative z-10 overflow-hidden">
         {phase === GAME_PHASE.BOOT && <BootSequence />}
         {phase === GAME_PHASE.TITLE && <TitleScreen />}
-        {phase === GAME_PHASE.GRID && (
-          <>
-            <HUD />
-            <GridWorkspace />
-          </>
-        )}
+        {phase === GAME_PHASE.GRID && <GridWorkspace />}
+        {phase === GAME_PHASE.NODE_INTRO && <NodeIntro />}
         {phase === GAME_PHASE.NODE_COMPLETE && <NodeComplete />}
         {phase === GAME_PHASE.TERMINAL && <Terminal />}
         {phase === GAME_PHASE.GAME_OVER && <GameOver />}

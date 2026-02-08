@@ -1,7 +1,16 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { getNode } from '../engine/nodes'
 import { THEMES } from '../themes'
+
+function StatRow({ label, value, valueClassName = '' }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-[0.7rem]">
+      <span className="text-[var(--crt-green-dim)] tracking-wider">{label}</span>
+      <span className={`font-bold tabular-nums text-[var(--crt-green)] ${valueClassName}`}>{value}</span>
+    </div>
+  )
+}
 
 export default function HUD() {
   const [showThemes, setShowThemes] = useState(false)
@@ -50,10 +59,9 @@ export default function HUD() {
   const node = getNode(currentNodeId)
   const completion = engine ? engine.getCompletionPercent() : 0
   const minesLeft = engine ? engine.mineCount - engine.flaggedCount : 0
-  const ledgerProgress = ledgerMineOrder.length % 5
   const hasLedgerLink = ledgerLevel > 0
-  const hasExploits = Object.keys(exploits).length > 0
   const overclockRemaining = Math.max(0, Math.ceil((overclockUntil - Date.now()) / 1000))
+  const ledgerProgress = ledgerMineOrder.length % 5
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60)
@@ -75,34 +83,49 @@ export default function HUD() {
   ].filter(btn => btn.charges > 0)
 
   return (
-    <div className="w-full shrink-0 border-b border-[var(--crt-green-dim)] bg-[#0c0c0c]">
-      <div className="flex items-center justify-between px-4 py-2 gap-5 text-sm flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="text-[var(--crt-green-dim)]">NODE</span>
-          <span className="text-[var(--crt-green)] glow font-bold text-base">
-            {String(currentNodeId).padStart(2, '0')}
-          </span>
-          <span className="text-[var(--crt-green-dim)]">//</span>
-          <span className="text-[var(--crt-amber)] glow-amber font-bold">{node.name}</span>
-          <span className="text-[var(--crt-green-dim)] ml-1">T+</span>
-          <span className="text-[var(--crt-green)] glow font-bold text-base tabular-nums">
-            {formatTime(elapsed)}
-          </span>
-          {overclockRemaining > 0 && (
-            <span className="text-[var(--crt-red)] glow-red font-bold tabular-nums text-xs">
-              OC:{overclockRemaining}s
-            </span>
-          )}
+    <div className="pointer-events-none absolute inset-y-1 left-1 right-1 z-20 flex justify-between gap-2">
+      <aside className="pointer-events-auto w-[clamp(8.5rem,16vw,14.5rem)] border border-[var(--crt-green-dark)] bg-[#060a06e0] backdrop-blur-[1px] shadow-[0_0_16px_rgba(0,255,65,0.16)] flex flex-col overflow-hidden">
+        <div className="px-2 py-1 border-b border-[var(--crt-green-dark)] text-[0.62rem] font-bold tracking-[0.2em] text-[var(--crt-green)]">
+          SYSTEM
         </div>
+        <div className="p-2 space-y-2 overflow-y-auto">
+          <div className="space-y-1.5">
+            <div className="text-[0.62rem] text-[var(--crt-green-dim)] tracking-wider">NODE</div>
+            <div className="text-[var(--crt-amber)] font-bold text-[0.76rem] leading-tight break-all">
+              {String(currentNodeId).padStart(2, '0')} // {node.name}
+            </div>
+          </div>
 
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--crt-green-dim)]">FW</span>
-            <div className="flex gap-1">
+          <StatRow label="TIME" value={formatTime(elapsed)} valueClassName="glow" />
+          {overclockRemaining > 0 && (
+            <StatRow label="OVERCLOCK" value={`${overclockRemaining}s`} valueClassName="text-[var(--crt-red)] glow-red" />
+          )}
+          <StatRow
+            label="MINES"
+            value={String(minesLeft).padStart(3, '0')}
+            valueClassName={minesLeft <= 3 ? 'text-[var(--crt-amber)] glow-amber' : 'text-[var(--crt-red)] glow-red'}
+          />
+          <StatRow label="CACHE" value={`$${cache}`} valueClassName="text-[var(--crt-amber)] glow-amber" />
+          <StatRow label="ENTROPY" value={entropy} valueClassName="text-[var(--crt-cyan)]" />
+
+          <div className="space-y-1">
+            <div className="text-[var(--crt-green-dim)] tracking-wider text-[0.65rem]">SCAN</div>
+            <div className="h-2 bg-[#111] border border-[var(--crt-green-dark)] overflow-hidden">
+              <div
+                className="h-full bg-[var(--crt-green)] transition-all duration-300"
+                style={{ width: `${completion}%`, boxShadow: '0 0 4px var(--crt-green-glow)' }}
+              />
+            </div>
+            <div className="text-right text-[0.7rem] text-[var(--crt-green)] tabular-nums">{completion}%</div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-[var(--crt-green-dim)] tracking-wider text-[0.65rem]">FIREWALLS</div>
+            <div className="flex flex-wrap gap-1">
               {Array.from({ length: maxFirewalls }).map((_, i) => (
                 <span
                   key={i}
-                  className={`inline-block w-3.5 h-3.5 border-2 ${
+                  className={`inline-block w-3 h-3 border ${
                     i < firewalls
                       ? 'border-[var(--crt-green)] bg-[var(--crt-green)] shadow-[0_0_4px_var(--crt-green-glow)]'
                       : 'border-[var(--crt-red)] bg-transparent opacity-50'
@@ -112,88 +135,70 @@ export default function HUD() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--crt-green-dim)]">MINES</span>
-            <span className={`font-bold text-base tabular-nums ${minesLeft <= 3 ? 'text-[var(--crt-amber)] glow-amber' : 'text-[var(--crt-red)] glow-red'}`}>
-              {String(minesLeft).padStart(3, '0')}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--crt-green-dim)]">SCAN</span>
-            <div className="w-20 h-2.5 bg-[#111] border border-[var(--crt-green-dim)] overflow-hidden">
-              <div
-                className="h-full bg-[var(--crt-green)] transition-all duration-300"
-                style={{ width: `${completion}%`, boxShadow: '0 0 4px var(--crt-green-glow)' }}
-              />
-            </div>
-            <span className="text-[var(--crt-green)] glow font-bold tabular-nums">{completion}%</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--crt-green-dim)]">CACHE</span>
-            <span className="text-[var(--crt-amber)] glow-amber font-bold text-base tabular-nums">${cache}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--crt-green-dim)]">ENT</span>
-            <span className="text-[var(--crt-cyan)] font-bold text-base tabular-nums">{entropy}</span>
-          </div>
-
           {hasLedgerLink && (
-            <div className="flex items-center gap-2">
-              <span className="text-[var(--crt-green-dim)]">LEDGER</span>
-              <span className="font-bold text-base tabular-nums text-[#39ff14] drop-shadow-[0_0_4px_rgba(57,255,20,0.65)]">
-                {ledgerProgress}/5
-              </span>
-              <span className="text-[var(--crt-green-dim)] text-xs">
-                B{ledgerValidatedBlocks}
-              </span>
+            <div className="space-y-1 border-t border-[var(--crt-green-dark)] pt-2">
+              <div className="text-[0.65rem] text-[var(--crt-green-dim)] tracking-wider">LEDGER</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[#39ff14] font-bold tabular-nums text-[0.8rem] drop-shadow-[0_0_4px_rgba(57,255,20,0.65)]">
+                  {ledgerProgress}/5
+                </span>
+                <span className="text-[var(--crt-green-dim)] text-[0.65rem] tabular-nums">
+                  BLOCKS {ledgerValidatedBlocks}
+                </span>
+              </div>
             </div>
           )}
         </div>
+      </aside>
 
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {hasExploits && exploitButtons.length > 0 && (
-            <>
+      <aside className="pointer-events-auto w-[clamp(8.5rem,16vw,14.5rem)] border border-[var(--crt-green-dark)] bg-[#060a06e0] backdrop-blur-[1px] shadow-[0_0_16px_rgba(0,255,65,0.16)] flex flex-col overflow-hidden">
+        <div className="px-2 py-1 border-b border-[var(--crt-green-dark)] text-[0.62rem] font-bold tracking-[0.2em] text-[var(--crt-green)]">
+          TOOLS
+        </div>
+
+        <div className="flex-1 p-2 space-y-1.5 overflow-y-auto">
+          <div className="text-[0.65rem] text-[var(--crt-green-dim)] tracking-wider">EXPLOITS</div>
+          {exploitButtons.length > 0 ? (
+            <div className="space-y-1">
               {exploitButtons.map(btn => (
                 <button
                   key={btn.id}
                   onClick={btn.action}
-                  className={`terminal-btn text-xs py-1 px-2 ${btn.active ? 'bg-[var(--crt-green)] text-black' : ''}`}
                   title={btn.title}
+                  className={`w-full terminal-btn text-[0.63rem] px-2 py-1.5 flex items-center justify-between ${btn.active ? 'bg-[var(--crt-green)] text-black' : ''}`}
                 >
-                  {btn.label}[{btn.charges}]
+                  <span>{btn.label}</span>
+                  <span className="tabular-nums">{btn.charges}</span>
                 </button>
               ))}
-              <span className="text-[var(--crt-green-dark)]">|</span>
-            </>
+            </div>
+          ) : (
+            <div className="text-[0.7rem] text-[var(--crt-green-dark)]">none loaded</div>
           )}
+        </div>
 
+        <div className="mt-auto border-t border-[var(--crt-green-dark)] p-2 space-y-2">
           <div ref={themeRef} className="relative">
             <button
               onClick={() => setShowThemes(!showThemes)}
+              className="terminal-btn w-full text-[0.63rem] px-2 py-1.5"
               title="Change color theme"
-              className="text-[var(--crt-green-dim)] hover:text-[var(--crt-green)] transition-colors"
             >
-              THM
+              THEME: {THEMES[currentTheme]?.name || currentTheme}
             </button>
             {showThemes && (
-              <div className="absolute right-0 top-full mt-1 z-50 border border-[var(--crt-green-dim)] bg-[var(--crt-bg)] min-w-[160px]">
+              <div className="absolute right-0 bottom-full mb-1 w-full z-50 border border-[var(--crt-green-dim)] bg-[var(--crt-bg)] max-h-44 overflow-y-auto">
                 {Object.entries(THEMES).map(([id, theme]) => (
                   <button
                     key={id}
                     onClick={() => { setTheme(id); setShowThemes(false) }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-[var(--crt-green)] hover:text-[var(--crt-bg)] transition-colors ${
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 text-[0.68rem] text-left hover:bg-[var(--crt-green)] hover:text-[var(--crt-bg)] transition-colors ${
                       currentTheme === id ? 'text-[var(--crt-green)]' : 'text-[var(--crt-green-dim)]'
                     }`}
                   >
-                    <span
-                      className="inline-block w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: theme.primary }}
-                    />
-                    {theme.name}
-                    {currentTheme === id && ' *'}
+                    <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: theme.primary }} />
+                    <span className="truncate">{theme.name}</span>
+                    {currentTheme === id && <span className="ml-auto">*</span>}
                   </button>
                 ))}
               </div>
@@ -202,13 +207,13 @@ export default function HUD() {
 
           <button
             onClick={toggleSound}
+            className="terminal-btn w-full text-[0.63rem] px-2 py-1.5"
             title="Toggle sound effects"
-            className="text-[var(--crt-green-dim)] hover:text-[var(--crt-green)] transition-colors"
           >
-            {soundEnabled ? 'SND' : 'MUTE'}
+            {soundEnabled ? 'SOUND: ON' : 'SOUND: OFF'}
           </button>
         </div>
-      </div>
+      </aside>
     </div>
   )
 }

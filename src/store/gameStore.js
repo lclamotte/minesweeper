@@ -9,6 +9,7 @@ export const GAME_PHASE = {
   BOOT: 'boot',
   TITLE: 'title',
   GRID: 'grid',
+  NODE_INTRO: 'node_intro',
   NODE_COMPLETE: 'node_complete',
   TERMINAL: 'terminal',
   GAME_OVER: 'game_over',
@@ -319,6 +320,7 @@ const store = create((set, get) => ({
   revealAnimations: [],
   mineExplosions: [],
   nodeCompleteData: null,
+  nodeIntroData: null,
   showPacketSniffer: false,
   rowMineCounts: [],
   colMineCounts: [],
@@ -374,6 +376,7 @@ const store = create((set, get) => ({
       revealAnimations: [],
       mineExplosions: [],
       nodeCompleteData: null,
+      nodeIntroData: null,
       elapsed: 0,
       ledgerLinks: [],
       ledgerMineOrder: [],
@@ -407,6 +410,7 @@ const store = create((set, get) => ({
       revealAnimations: [],
       mineExplosions: [],
       nodeCompleteData: null,
+      nodeIntroData: null,
       elapsed: save.elapsed || 0,
       ledgerLinks: save.ledgerLinks || [],
       ledgerMineOrder: save.ledgerMineOrder || [],
@@ -438,7 +442,7 @@ const store = create((set, get) => ({
   abandonRun: () => {
     clearSave()
     get().stopTimer()
-    set({ phase: GAME_PHASE.TITLE })
+    set({ phase: GAME_PHASE.TITLE, nodeIntroData: null })
   },
 
   initNode: (nodeId) => {
@@ -459,6 +463,7 @@ const store = create((set, get) => ({
       sqlInjectActive: false,
       deepScanResults: null,
       overclockUntil: 0,
+      nodeIntroData: null,
       showPacketSniffer: hasPacketSniffer,
       rowMineCounts: [],
       colMineCounts: [],
@@ -499,6 +504,12 @@ const store = create((set, get) => ({
     const state = get()
     const { engine, soundEnabled } = state
     if (!engine || engine.gameOver) return
+
+    // Auto-chord on normal click when clicking an already revealed number cell.
+    if (engine.getCellState(row, col) === CELL_STATE.REVEALED) {
+      get().chordReveal(row, col)
+      return
+    }
 
     const wasHidden = engine.getCellState(row, col) === CELL_STATE.HIDDEN
 
@@ -836,10 +847,10 @@ const store = create((set, get) => ({
     const state = get()
     const nextNode = getNextNode(state.currentNodeId)
     if (nextNode) {
-      set({ phase: GAME_PHASE.TERMINAL, entropy: 0, deepScanResults: null, deepScanActive: false, sqlInjectActive: false })
+      set({ phase: GAME_PHASE.TERMINAL, entropy: 0, deepScanResults: null, deepScanActive: false, sqlInjectActive: false, nodeIntroData: null })
       saveGame(get())
     } else {
-      set({ phase: GAME_PHASE.WIN })
+      set({ phase: GAME_PHASE.WIN, nodeIntroData: null })
       clearSave()
     }
   },
@@ -892,11 +903,32 @@ const store = create((set, get) => ({
     return true
   },
 
+  purchaseTerminalReload: (cost = 0) => {
+    const state = get()
+    const safeCost = Math.max(0, Math.floor(cost))
+    if (state.cache < safeCost) return false
+
+    set({ cache: state.cache - safeCost })
+    saveGame(get())
+    return true
+  },
+
   proceedToNextNode: () => {
     const state = get()
     const nextNode = getNextNode(state.currentNodeId)
     if (nextNode) {
-      get().initNode(nextNode.id)
+      set({
+        phase: GAME_PHASE.NODE_INTRO,
+        nodeIntroData: {
+          nextNodeId: nextNode.id,
+          nodeName: nextNode.name,
+          rows: nextNode.rows,
+          cols: nextNode.cols,
+          mines: nextNode.mines,
+          firewalls: state.firewalls,
+          maxFirewalls: state.maxFirewalls,
+        },
+      })
     }
   },
 
